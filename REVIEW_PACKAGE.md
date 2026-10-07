@@ -116,3 +116,5 @@ Primary ACCEPT HOST-05: update currentpublication summary withauthorizedinstalla
 ## Live hosting completion
 
 OwnerenabledPagesSourceworkflow; run37596025627 build+deploySUCCESS. HTML/allassets200 andremoteiPhoneWebKitDemo/SMAlockreload/PWAscope/staticSEC/noAPIs/noerrorsPASS withTLSverificationenabled. Evidence docs/pages-live-http.json/pages-live-browser-smoke.json. PhysicalSafariUATpending. RemoteCloudChromiumblockedbyproxyCAtrust; globalNSSCAmodificationwasrejectedbyautomaticreview duefuturetrustboundary andnotexecuted. No insecureTLSbypass. Alllocal136unit/86browserPASS+10expectedSKIP/lint/buildremainvalid; onlydocs/evidencechangeafterpublication. No V2featurework.
+
+Primary ACCEPT HOST-06: GPT-6.1 Sol High finalread-onlyaudit confirmed liveHTTP/WebKitproof andaccurateCloudChromeBLOCKEDstatus; GPT-6 Luna Max relabeledthe earlierunqualifiedPublicationheading ashistorical. No applicationcodechange. Latestdocs/evidence deploymentrun37596875057 build/deploySUCCESS beforethis finalheading-onlycleanup.

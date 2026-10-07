@@ -18,7 +18,7 @@ Build warnings are the existing third-party Zod Rollup annotation notices; lint 
 
 Plan and read-only implementation review: GPT-6.1 Sol High. Frozen implementation: GPT-6 Luna Max. Primary triage accepts removal of the unplanned Yahoo import rejection and adding `dist-pages/**` to ESLint ignores. Static Yahoo cache bypass is accepted to make backend absence explicit; normal cache behavior stays unchanged. Gemini/Claude independent review remains unavailable; REVIEW_PACKAGE.md records the handoff.
 
-## Publication
+## Historical source publication / Pages owner setup checkpoint (resolved below)
 
 Target: `wudn9922/lightweight-drawing-lab`, source published to main in commit5f87026e5a5983bc6199d4ffb103fd89c2f018a4. User authorized installation168757214 onwudn9922. Contents/workflows/actions writes succeed. Intended website: `https://wudn9922.github.io/lightweight-drawing-lab/`; it is not yet live. The remaining blocker is Pages owner setup, not repository contents authorization: POSTPages returns403, and hosted configure-pages fails404 until Source is set to GitHub Actions.
 
