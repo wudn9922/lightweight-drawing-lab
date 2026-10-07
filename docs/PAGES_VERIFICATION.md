@@ -20,7 +20,7 @@ Plan and read-only implementation review: GPT-6.1 Sol High. Frozen implementatio
 
 ## Publication
 
-Target: `wudn9922/lightweight-drawing-lab`, initial empty `main`. Intended website: `https://wudn9922.github.io/lightweight-drawing-lab/`. The connected user is wudn9922, but the only available chatgpt-codex-connector installation is on saku0827 and covers saku0827/fast-launch-api. It does not cover the target repository. Public reads succeed; mutation fails. No remote commit was created.
+Target: `wudn9922/lightweight-drawing-lab`, source published to main in commit5f87026e5a5983bc6199d4ffb103fd89c2f018a4. User authorized installation168757214 onwudn9922. Contents/workflows/actions writes succeed. Intended website: `https://wudn9922.github.io/lightweight-drawing-lab/`; it is not yet live. The remaining blocker is Pages owner setup, not repository contents authorization: POSTPages returns403, and hosted configure-pages fails404 until Source is set to GitHub Actions.
 
 Combined browser evidence: **86 passed / 10 expected skipped** across normal V1 and static project-path suites. All four profiles passed both suites.
 
@@ -35,9 +35,9 @@ Combined browser evidence: **86 passed / 10 expected skipped** across normal V1 
 
 User action required: in ChatGPT's GitHubconnection settings/manageinstallation, install/authorize **ChatGPT Codex Connector** for wudn9922/lightweight-drawing-lab. Do not paste tokens/credentials into chat. After authorization, continue API publication from this workspace; rereadremote branches beforewrite. Pages may additionally require its owner to choose Settings→Pages→GitHubActions because currentApp permission metadata has no Pages/administration grant. Preparedsource/workflow/testresults remainready.
 
-## Authorization retry
+## Historical authorization retry — succeeded
 
-After the user confirmed authorization, GitHub installation168757214 onwudn9922 was visible and its repository list includedlightweight-drawing-lab. Targetbranchlist remainedempty. Publication is now retried through supported authenticatedAPIs; contentswrite andPagesdeployment results will be recorded separately.
+After the user confirmed authorization, GitHub installation168757214 onwudn9922 was visible and its repository list includedlightweight-drawing-lab. Targetbranchlist remainedempty. Contents publication subsequently succeeded; actual commit/Pages results are recorded in the following section.
 
 ## Source published / Pages setup pending
 
