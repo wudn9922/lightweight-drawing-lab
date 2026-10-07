@@ -6,7 +6,7 @@ V1 baseline engineering verification: **135 unit tests and 78 browser cases pass
 
 ## GitHub Pages
 
-The same Atlas source supports the project path `/lightweight-drawing-lab/`. Implementation and local verification are ready; repository authorization was confirmed on 2026-10-07 and publication is in progress (see hosting verification). The Pages build is separate from the normal local build:
+The same Atlas source supports the project path `/lightweight-drawing-lab/`. Implementation and local verification are ready; repository authorization and source commit succeeded on 2026-10-07. The repository owner must enable Settings → Pages → GitHub Actions once; deployment can then run (see hosting verification). The Pages build is separate from the normal local build:
 
 ```sh
 npm ci

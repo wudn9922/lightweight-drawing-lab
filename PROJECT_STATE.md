@@ -1,8 +1,8 @@
 # Atlas V1 — current workspace state
 
-Updated: **2026-10-07**. V1 remains **COMPLETE WITH EXTERNAL UAT PENDING**. Authorized GitHub Pages hosting implementation, Sol review and all local tests are complete. The user has authorized the target repository; the current GitHub App installation on wudn9922 now includes lightweight-drawing-lab. **Publication is in progress.**
+Updated: **2026-10-07**. V1 remains **COMPLETE WITH EXTERNAL UAT PENDING**. Authorized GitHub Pages hosting implementation, Sol review and all local tests are complete. The user has authorized the target repository; the current GitHub App installation on wudn9922 now includes lightweight-drawing-lab. **Source committed; publication requires the repository owner to enable Pages.**
 
-**Current exact next action:** commit the tested source and workflow to the still-empty target main through the supported GitHub APIs, enable Pages if the App permits it, and verify the actual HTTPS site. Pages owner setup may still be needed because App permission metadata lacks Pages/administration grants. Do not redo V1, initialize local Git, extract archives or start V2.
+**Current exact next action:** user sets repository Settings → Pages → Build and deployment → Source to GitHub Actions. The App cannot create the Pages site (POST returns403; current grants omit administration/pages). The source commit is `5f87026e5a5983bc6199d4ffb103fd89c2f018a4`. GitHub Actions run37580250183 passed ci/unit/lint/Pagesbuild, then failed only at configure-pages because the site is not enabled. Once the setting is enabled, rerun the workflow and verify HTTPS/asset responses; no V1 implementation redo is needed.
 
 Latest verification: clean npmci; **136 unit tests/18 files; lint; normal and Pages builds; 86 browser PASS/10 expected SKIP/0 FAIL**, all four profiles. Ready source archive: `scratch/atlas-github-pages-ready.zip`; static artifact: `scratch/atlas-pages-static-ready.zip`. Original4173preview stillHTTP200.
 
@@ -78,3 +78,7 @@ Hostingprogress: implementation/review/localverification COMPLETE; GitHubcommita
 Exactnextaction: aftertargetrepositoryauthorization, rerun ghapi user/installations andlisttargetbranches; ifstillempty bootstrapREADME thenupload172sourcefiles+workflow viaRESTAPI andcommitmain. Sourceallowlist/tmp/atlas-source-paths.json and/tmp/atlas-publish.py aretemporaryhelpers, reconstructifexpired. Neverinitializeprotectedlocal.git, extractZIPorchange workspace. AllverificationalreadyPASS; no reasonredoV1. DeploymentmustbeactuallyHTTP200verified beforeclaimsitecomplete.
 
 Authorization rechecked after user confirmation: installation168757214 onwudn9922 coverslightweight-drawing-lab; repositorybranchesremainempty. Priorcontents403/blocker ishistorical; actualwrite/deployment retriednext.
+
+## Source publication checkpoint
+
+Source main commit5f87026e5a5983bc6199d4ffb103fd89c2f018a4 successfully published172files. BootstrapREADMEcommit5a123127aed8f19f92677731c9d523d16abb3c7f. Appcontents/workflows rights nowwork. GitHubActions run37580250183: npmci/test136/lint/PagesbuildPASS, configure-pagesFAIL404 (site not enabled), deploymentSKIP. POSTPages still403. Officialactions/configure-pages action.yml saysenablement requiresanother token withadministration:write/pages:write; GITHUB_TOKEN cannotautoenable. No newsecret/PATrequested; user asked toenable SourceGitHubActions viaSettingsPages once. Afterenablement, rootcanrerunActions withcurrentactionswrite scope.

@@ -1,6 +1,6 @@
 # Atlas GitHub Pages hosting verification
 
-Updated: 2026-10-07. Hosting-only extension of the verified V1 workspace. All local verification gates passed. Target repository authorization is now confirmed; publication is in progress. No live website is claimed before actual verification.
+Updated: 2026-10-07. Hosting-only extension of the verified V1 workspace. All local verification gates passed. Source publication succeeded. Website deployment requires the owner to enable Pages → Source: GitHub Actions. No live website is claimed before actual verification.
 
 ## Scope
 
@@ -38,3 +38,11 @@ User action required: in ChatGPT's GitHubconnection settings/manageinstallation,
 ## Authorization retry
 
 After the user confirmed authorization, GitHub installation168757214 onwudn9922 was visible and its repository list includedlightweight-drawing-lab. Targetbranchlist remainedempty. Publication is now retried through supported authenticatedAPIs; contentswrite andPagesdeployment results will be recorded separately.
+
+## Source published / Pages setup pending
+
+Successful source commit: [5f87026](https://github.com/wudn9922/lightweight-drawing-lab/commit/5f87026e5a5983bc6199d4ffb103fd89c2f018a4),172files onmain. Contents/workflow authorization issue isresolved.
+
+[GitHubActions run37580250183](https://github.com/wudn9922/lightweight-drawing-lab/actions/runs/37580250183) passed npmci/unit136/lint/build:pages onthehostedrunner, thenfailed only atconfigure-pages because PagesGET returned404. Deployment wasskipped. Explicit POSTPages withbuild_typeworkflow returned403 `Resource not accessible by integration`.
+
+Official actions/configure-pages/action.yml states automaticenablement requires a token otherthanGITHUB_TOKEN, and Appadministration:write/pages:write grants. CurrentAppdoesnot have thosegrants. No secret/PATisneededfornormalActionsdeployment once theowner selectsSettings→Pages→SourceGitHubActions. Userwasgiven that exactsetupURL/action. Afterenablement, rerunworkflow andcheckactualHTTPSHTML/JS/icons/manifest/worker.
