@@ -8,22 +8,31 @@ import {
 import { IndicatorRegistry, type IndicatorInstance, type IndicatorType } from './IndicatorRegistry';
 import { ema } from './ExponentialMovingAverage';
 import { sma } from './MovingAverage';
-import { volume } from './Volume';
+import { coloredVolume, volume, volumeSma, VOLUME_SMA_PERIOD } from './Volume';
 import type { Bar, Timeframe } from '../market-data/MarketDataProvider';
 
-type SeriesEntry =
-  | {
-      kind: 'Line';
-      type: IndicatorType;
-      api: ISeriesApi<'Line'>;
-      signature: string;
-    }
-  | {
-      kind: 'Histogram';
-      type: IndicatorType;
-      api: ISeriesApi<'Histogram'>;
-      signature: string;
-    };
+type LineEntry = {
+  kind: 'Line';
+  type: IndicatorType;
+  api: ISeriesApi<'Line'>;
+  signature: string;
+  visible: boolean;
+  values: Map<number, number>;
+};
+
+type HistogramEntry = {
+  kind: 'Histogram';
+  type: 'Volume';
+  api: ISeriesApi<'Histogram'>;
+  averageApi: ISeriesApi<'Line'>;
+  dataSignature: string;
+  averageSignature: string;
+  visible: boolean;
+  values: Map<number, number>;
+  averageValues: Map<number, number>;
+};
+
+type SeriesEntry = LineEntry | HistogramEntry;
 
 export class IndicatorEngine {
   private series = new Map<string, SeriesEntry>();
@@ -49,7 +58,7 @@ export class IndicatorEngine {
     const ids = new Set(active.map((i) => i.id));
     for (const [id, entry] of this.series) {
       if (!ids.has(id)) {
-        this.chart.removeSeries(entry.api);
+        this.removeEntry(entry);
         this.series.delete(id);
       }
     }
@@ -60,7 +69,7 @@ export class IndicatorEngine {
 
       let entry = this.series.get(instance.id);
       if (entry && (entry.kind !== definition.series || entry.type !== instance.type)) {
-        this.chart.removeSeries(entry.api);
+        this.removeEntry(entry);
         this.series.delete(instance.id);
         entry = undefined;
       }
@@ -73,8 +82,11 @@ export class IndicatorEngine {
             priceLineVisible: false,
             lastValueVisible: false,
             crosshairMarkerVisible: false,
+            title: '',
           }),
           signature: '',
+          visible: instance.visible,
+          values: new Map(),
         };
         this.series.set(instance.id, entry);
       } else if (!entry && definition.series === 'Histogram') {
@@ -84,41 +96,95 @@ export class IndicatorEngine {
           priceScaleId,
           priceLineVisible: false,
           lastValueVisible: false,
+          title: '',
         });
-        api.priceScale().applyOptions({ scaleMargins: { top: 0.88, bottom: 0 } });
-        entry = { kind: 'Histogram', type: instance.type, api, signature: '' };
+        api.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+        const averageApi = this.chart.addSeries(LineSeries, {
+          color: instance.color,
+          lineWidth: instance.lineWidth,
+          priceScaleId,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+          title: '',
+        });
+        entry = {
+          kind: 'Histogram',
+          type: 'Volume',
+          api,
+          averageApi,
+          dataSignature: '',
+          averageSignature: '',
+          visible: instance.visible,
+          values: new Map(),
+          averageValues: new Map(),
+        };
         this.series.set(instance.id, entry);
       }
 
       if (!entry) continue;
-
-      const title = instance.type === 'Volume' ? 'Volume' : `${instance.type} ${instance.period}`;
-      const signature = `${dataRevision}:${instance.type}:${instance.period}:${instance.source}`;
+      entry.visible = instance.visible;
       if (entry.kind === 'Line') {
         entry.api.applyOptions({
           color: instance.color,
           lineWidth: instance.lineWidth,
           visible: instance.visible,
-          title,
+          title: '',
         });
+        const signature = `${dataRevision}:${instance.type}:${instance.period}:${instance.source}`;
         if (entry.signature !== signature) {
           const data = definition.calculate(bars, instance.period, instance.source);
           entry.api.setData(data.map((point) => ({ ...point, time: point.time as UTCTimestamp })));
+          entry.values = new Map(data.map((point) => [point.time, point.value]));
           entry.signature = signature;
         }
       } else {
-        entry.api.applyOptions({ color: instance.color, visible: instance.visible, title });
-        if (entry.signature !== signature) {
-          const data = definition.calculate(bars, instance.period, instance.source);
+        entry.api.applyOptions({ color: instance.color, visible: instance.visible, title: '' });
+        entry.averageApi.applyOptions({
+          color: instance.color,
+          lineWidth: instance.lineWidth,
+          visible: instance.visible,
+          title: '',
+        });
+        const dataSignature = `${dataRevision}:Volume`;
+        if (entry.dataSignature !== dataSignature) {
+          const data = coloredVolume(bars);
           entry.api.setData(data.map((point) => ({ ...point, time: point.time as UTCTimestamp })));
-          entry.signature = signature;
+          entry.values = new Map(data.map((point) => [point.time, point.value]));
+          entry.dataSignature = dataSignature;
+        }
+        const averageSignature = `${dataRevision}:Volume:${VOLUME_SMA_PERIOD}`;
+        if (entry.averageSignature !== averageSignature) {
+          const averages = volumeSma(bars);
+          entry.averageApi.setData(
+            averages.map((point) => ({ ...point, time: point.time as UTCTimestamp })),
+          );
+          entry.averageValues = new Map(averages.map((point) => [point.time, point.value]));
+          entry.averageSignature = averageSignature;
         }
       }
     }
   }
 
+  valueAt(id: string, time: number): number | null {
+    const entry = this.series.get(id);
+    return entry?.visible ? (entry.values.get(time) ?? null) : null;
+  }
+
+  volumeAverageAt(id: string, time: number): number | null {
+    const entry = this.series.get(id);
+    return entry?.kind === 'Histogram' && entry.visible
+      ? (entry.averageValues.get(time) ?? null)
+      : null;
+  }
+
+  private removeEntry(entry: SeriesEntry) {
+    this.chart.removeSeries(entry.api);
+    if (entry.kind === 'Histogram') this.chart.removeSeries(entry.averageApi);
+  }
+
   clear() {
-    for (const entry of this.series.values()) this.chart.removeSeries(entry.api);
+    for (const entry of this.series.values()) this.removeEntry(entry);
     this.series.clear();
   }
 }

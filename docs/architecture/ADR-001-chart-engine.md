@@ -2,6 +2,8 @@
 
 Status: Accepted / frozen for Phase 1 (2026-10-06).
 
+Physical-UAT correction2026-10-07: the numeric legend lives outside the plot, replacing overlaid indicator action cards. Candle price-scale margins reserve the bottom volume region; histogram and MA20 share one overlay scale. App-shell native fullscreen keeps dialogs within the fullscreen root; unsupported/denied native fullscreen uses transient CSS focus. Neither path remounts the chart or changes canonical drawing coordinates. Zoom actions are outside the plot on the existing rail. Normal mobile spacing is reduced while active drawing controls retain44px touch targets.
+
 Use React 19 + TypeScript + Vite and exactly one Lightweight Charts engine. Pin `lightweight-charts` to **5.2.1**. On 2026-10-06 both npm metadata and the official latest release reported 5.2.1. Its release notes describe compatible 5.x enhancements and fixes, including crosshair/marker hot-path performance and dataset replacement under a crosshair; no breaking migration was identified. Installed `dist/typings.d.ts` is authoritative. Use `addSeries(CandlestickSeries)` and `attachPrimitive`.
 
 ChartEngine owns candles, volume, price/time scales, lifecycle, OHLC header, indicator series and chart preferences. ChartTransform delegates conversions to public chart/series APIs. React never recreates the chart for pointer movement. Native Lightweight Charts pan, zoom, pinch and crosshair remain in use.

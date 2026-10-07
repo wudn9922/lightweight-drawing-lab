@@ -55,6 +55,8 @@ The downloaded WebKit launcher preserves that library path. Skipping its host ch
 
 ## Daily use
 
+Phone chart controls: **Enter chart fullscreen** expands the same chart and **Exit chart fullscreen** returns to the workspace. Safari versions without element fullscreen use a chart focus layout; browser chrome remains. Add to Home Screen for a standalone PWA. Zoom buttons live on the drawing rail, outside the plot/volume area. The compact legend shows SMA/EMA values for the crosshair candle, or the latest candle when no real candle is selected. **Manage indicators** opens the existing per-symbol controls. Volume bars match candle direction (green close ≥ open, red close < open) with a fixed **20-bar volume SMA**; its first19bars are N/A, not zero. An explicit Volume indicator's color styles the average line, and Hide controls both series.
+
 1. Enter a normalized ticker in **Symbol search** or select a Watchlist entry. Recent symbols and the Watchlist appear as suggestions; optional known company names and available cached quote/change labels are shown. Manage Watchlist provides add/remove/reorder with persistent order.
 2. For AAPL, open **Indicators** (phone bottom **SMA**), choose SMA, add periods **24** and **58**. Switch to NVDA and add **43** and **56**. Each symbol owns independent indicator instances, styles, locks, drawings and chart preferences. SMA and EMA support open/high/low/close; Volume uses provider volume. Eye remains available while locked; period/source/style/removal require unlock.
 3. Save a named indicator preset, then apply it to another ticker. Applying creates new symbol-owned instances; changing one symbol cannot mutate the preset or another symbol. Zero, one or many indicators are supported.

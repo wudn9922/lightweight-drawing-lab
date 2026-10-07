@@ -424,9 +424,12 @@ h2 {
   position: relative;
   overflow: hidden;
   background: #0e1521;
+  display: flex;
+  flex-direction: column;
 }
 .chart-host {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   width: 100%;
   touch-action: none;
   user-select: none;
@@ -434,17 +437,24 @@ h2 {
   position: relative;
 }
 .chart-overlay {
-  position: absolute;
-  top: 15px;
-  left: 16px;
-  right: 74px;
+  position: relative;
   z-index: 2;
-  pointer-events: none;
+  flex: 0 0 44px;
+  min-width: 0;
+  height: 44px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  background: #0e1521;
 }
 .chart-heading {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 0 0 auto;
+  min-width: 0;
   font-size: 11px;
   color: #7588a3;
 }
@@ -464,34 +474,62 @@ h2 {
 }
 .ohlc-header {
   font:
-    10px 'Space Grotesk',
+    9px 'Space Grotesk',
     monospace;
-  margin-top: 9px;
-  white-space: pre-wrap;
-  line-height: 1.7;
-  min-height: 20px;
+  flex: 0 1 280px;
+  min-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1;
 }
 .indicator-chips {
   display: flex;
-  gap: 6px;
-  margin-top: 7px;
-  flex-wrap: wrap;
+  align-items: center;
+  flex: 1 1 auto;
+  gap: 10px;
+  min-width: 0;
+  max-height: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
+  scrollbar-width: none;
+}
+.indicator-chips::-webkit-scrollbar {
+  display: none;
 }
 .indicator-chip {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  padding-left: 8px;
-  background: #101b2aee;
-  border: 1px solid #26364b;
-  border-radius: 5px;
-  pointer-events: auto;
-  font-size: 10px;
-  gap: 2px;
-}
-.indicator-chip .icon-button {
-  width: 44px;
-  height: 44px;
+  flex: 0 0 auto;
+  padding: 0;
+  background: transparent;
+  border: 0;
   border-radius: 0;
+  font-size: 10px;
+  gap: 4px;
+  white-space: nowrap;
+}
+.legacy-volume-chip {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 4px;
+  color: #91a1b9;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.indicator-name {
+  color: #a8b8ce;
+}
+.indicator-value,
+.indicator-average {
+  color: #91a1b9;
+  font-variant-numeric: tabular-nums;
+}
+.indicator-average {
+  display: inline-flex;
+  gap: 3px;
 }
 .hidden-indicator {
   opacity: 0.55;
@@ -520,20 +558,11 @@ h2 {
   color: #738fa322;
   white-space: nowrap;
 }
-.chart-zoom {
-  position: absolute;
-  bottom: 38px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  border-radius: 7px;
-  background: #142133df;
-  border: 1px solid #293b51;
-  z-index: 2;
-}
-.chart-zoom .icon-button {
-  height: 44px;
+.chart-overlay .manage-indicators {
+  flex: 0 0 44px;
   width: 44px;
+  height: 44px;
+  margin-left: auto;
 }
 .chart-status {
   display: flex;
@@ -849,6 +878,7 @@ h2 {
   pointer-events: none;
 }
 .notice {
+  pointer-events: none;
   position: fixed;
   bottom: 50px;
   left: 50%;
@@ -867,6 +897,7 @@ h2 {
   font-size: 12px;
 }
 .notice button {
+  pointer-events: auto;
   height: 44px;
   width: 44px;
   flex-shrink: 0;
@@ -988,7 +1019,7 @@ h2 {
   .details-panel {
     display: none;
   }
-  .chart-toolbar-right > .icon-button {
+  .chart-toolbar-right > .icon-button:not(.focus-toggle) {
     display: none;
   }
   .mobile-nav {
@@ -1012,10 +1043,7 @@ h2 {
     min-height: 44px;
   }
   .app-footer {
-    height: 28px;
-  }
-  .indicator-chip .icon-button {
-    width: 44px;
+    height: 20px;
   }
   .watch-actions {
     max-height: 44px;
@@ -1101,12 +1129,18 @@ h2 {
     min-width: 44px;
   }
   .chart-toolbar select {
-    width: 112px;
-    font-size: 9px;
+    width: 96px;
+    min-width: 88px;
+    font-size: 8px;
     padding: 0 5px;
   }
   .chart-toolbar-right {
     gap: 0;
+    flex: 0 0 auto;
+  }
+  .chart-toolbar-right .focus-toggle {
+    width: 44px;
+    height: 44px;
   }
   .drawing-rail {
     width: 46px;
@@ -1121,40 +1155,66 @@ h2 {
     margin: 3px 0;
   }
   .chart-overlay {
-    top: 10px;
-    left: 10px;
-    right: 67px;
+    display: grid;
+    grid-template-areas:
+      'heading ohlc manage'
+      'indicators indicators manage';
+    grid-template-columns: 58px minmax(0, 1fr) 44px;
+    grid-template-rows: 18px 26px;
+    column-gap: 4px;
+    row-gap: 0;
+    padding: 0 4px;
   }
   .chart-heading {
-    gap: 5px;
-    font-size: 9px;
+    grid-area: heading;
+    flex: none;
+    justify-content: center;
+    gap: 0;
+    font-size: 8px;
   }
-  .chart-heading b {
-    font-size: 12px;
-  }
+  .chart-heading > .status-dot,
+  .chart-heading > b,
   .chart-heading > span:nth-child(3) {
     display: none;
   }
+  .demo-badge {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    font-size: 7px;
+    letter-spacing: 0.3px;
+  }
   .ohlc-header {
-    font-size: 9px;
-    margin-top: 6px;
-    line-height: 1.5;
+    grid-area: ohlc;
+    flex: none;
+    min-width: 0;
+    font-size: 8px;
+    line-height: 1;
   }
   .indicator-chips {
-    gap: 3px;
-    max-height: 88px;
-    overflow: auto;
+    grid-area: indicators;
+    align-self: center;
+    height: 26px;
+    max-height: 26px;
+    gap: 8px;
   }
   .indicator-chip {
-    font-size: 9px;
-    padding-left: 5px;
+    font-size: 10px;
+    gap: 4px;
   }
-  .indicator-chip .icon-button {
-    width: 44px;
+  .legacy-volume-chip {
+    font-size: 10px;
+    gap: 4px;
+  }
+  .chart-overlay .manage-indicators {
+    grid-area: manage;
+    align-self: stretch;
+    margin: 0;
     height: 44px;
   }
   .chart-status {
-    padding: 9px 8px;
+    padding: 0 8px;
     font-size: 9px;
   }
   .chart-status > span:last-child {
@@ -1162,15 +1222,16 @@ h2 {
   }
   .data-source {
     font-size: 8px;
-    padding: 5px 8px;
-    min-height: 24px;
+    line-height: 14px;
+    padding: 1px 8px;
+    min-height: 16px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .app-footer {
     padding: 0 9px;
-    height: 24px;
+    height: 18px;
     font-size: 8px;
   }
   .app-footer > span {
@@ -1197,9 +1258,6 @@ h2 {
   .floating-drawing-toolbar > span {
     display: none;
   }
-  .chart-zoom {
-    bottom: 34px;
-  }
   .loupe {
     top: 115px;
   }
@@ -1207,7 +1265,10 @@ h2 {
     height: calc(62px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
   }
   .notice {
-    bottom: 76px;
+    top: calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 4px);
+    bottom: auto;
+    padding: 2px 8px;
+    max-width: calc(100vw - 100px);
   }
   .watch-row {
     padding: 4px;
@@ -1252,16 +1313,10 @@ h2 {
     min-height: 22px;
   }
   .chart-heading {
-    display: none;
-  }
-  .chart-overlay {
-    top: 6px;
+    display: flex;
   }
   .ohlc-header {
-    margin-top: 0;
-  }
-  .indicator-chips {
-    margin-top: 2px;
+    min-width: 56px;
   }
   .loupe {
     top: 80px;
@@ -1672,7 +1727,9 @@ h2 {
 }
 .indicator-chips {
   max-height: 96px;
-  overflow: auto;
+  max-height: none;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .research-field-row {
   display: grid;
@@ -1769,6 +1826,10 @@ h2 {
     padding: 1px 8px;
     align-items: center;
   }
+  .chart-status.has-drawing-controls {
+    height: 48px;
+    min-height: 48px;
+  }
   .chart-status.has-drawing-controls > span {
     display: none;
   }
@@ -1780,5 +1841,76 @@ h2 {
   }
   .mobile-drawing-controls > span {
     display: none;
+  }
+}
+
+.static-hosting-note {
+  flex: 0 0 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  color: #8595ad;
+  background: #101721;
+  font-size: 8px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.app-shell.chart-focus {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  width: 100vw;
+  height: 100dvh;
+  min-height: 0;
+  overflow: visible;
+  padding: var(--safe-area-inset-top, env(safe-area-inset-top, 0px))
+    var(--safe-area-inset-right, env(safe-area-inset-right, 0px))
+    var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))
+    var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+  background: #0b1019;
+}
+.app-shell.chart-focus .topbar,
+.app-shell.chart-focus .watchlist-panel,
+.app-shell.chart-focus .details-panel,
+.app-shell.chart-focus .app-footer,
+.app-shell.chart-focus .mobile-nav,
+.app-shell.chart-focus .data-source,
+.app-shell.chart-focus .events-source,
+.app-shell.chart-focus .static-hosting-note {
+  display: none;
+}
+.app-shell.chart-focus .workspace {
+  flex: 1;
+  min-height: 0;
+}
+.app-shell.chart-focus .main-workspace,
+.app-shell.chart-focus .chart-workspace,
+.app-shell.chart-focus .chart-stage,
+.app-shell.chart-focus .chart-host {
+  min-height: 0;
+}
+.app-shell.chart-focus .chart-toolbar {
+  height: 54px;
+  min-height: 54px;
+}
+.app-shell.chart-focus .chart-status {
+  height: 24px;
+  min-height: 24px;
+}
+.app-shell.chart-focus .chart-status.has-drawing-controls {
+  height: 48px;
+  min-height: 48px;
+}
+.app-shell.chart-focus .sheet-backdrop {
+  z-index: 1100;
+}
+@media (max-width: 1099px) {
+  .app-shell.chart-focus .chart-status {
+    height: 48px;
+    min-height: 48px;
   }
 }

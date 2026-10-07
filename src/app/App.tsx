@@ -24,11 +24,10 @@ import {
   LockKeyhole,
   UnlockKeyhole,
   Trash2,
-  Eye,
-  EyeOff,
   Settings2,
   ZoomIn,
   ZoomOut,
+  Minimize2,
   X,
   HelpCircle,
 } from 'lucide-react';
@@ -47,6 +46,7 @@ import {
 import { measurementValues } from '../tools/Measurement';
 import { toolNames, type ActiveTool } from '../drawing/DrawingModel';
 import { useDialogFocus } from '../ui/useDialogFocus';
+import { useChartFocus } from '../ui/useChartFocus';
 import { IconButton } from '../ui/IconButton';
 import { Watchlist, companies } from '../ui/Watchlist';
 import { IndicatorPanel } from '../ui/IndicatorPanel';
@@ -76,6 +76,8 @@ const providers = {
   demo: new CachedMarketDataProvider(new DemoProvider()),
   yahoo: STATIC_HOSTING ? new YahooProvider() : new CachedMarketDataProvider(new YahooProvider()),
 };
+const staticHostingText =
+  'GitHub Pages：Demo／畫線／指標可用；Yahoo 與 SEC 財報需要 backend，本頁暫不可用。';
 const supportsTimeframe = (
   provider: { supportedTimeframes: readonly Timeframe[] },
   timeframe: Timeframe,
@@ -113,27 +115,74 @@ export function App() {
     records: [],
   });
   useDialogFocus(modal);
+  const chartFocus = useChartFocus<HTMLDivElement>();
   const hostRef = useRef<HTMLDivElement>(null),
     headerRef = useRef<HTMLDivElement>(null),
+    legendRef = useRef<HTMLDivElement>(null),
     sourceRef = useRef<HTMLDivElement>(null),
+    timeframesRef = useRef<HTMLDivElement>(null),
     engine = useRef<ChartEngine | null>(null),
     importRef = useRef<HTMLInputElement>(null);
+  const centerActiveTimeframe = useCallback(() => {
+    const strip = timeframesRef.current;
+    const active = strip?.querySelector<HTMLButtonElement>('button[aria-pressed="true"]');
+    if (!strip || !active) return;
+    const stripRect = strip.getBoundingClientRect();
+    const buttonRect = active.getBoundingClientRect();
+    const delta = buttonRect.left - stripRect.left + (buttonRect.width - stripRect.width) / 2;
+    strip.scrollLeft = Math.max(
+      0,
+      Math.min(strip.scrollWidth - strip.clientWidth, strip.scrollLeft + delta),
+    );
+  }, []);
+  useEffect(() => {
+    if (!state.ready) return;
+    const frame = requestAnimationFrame(centerActiveTimeframe);
+    return () => cancelAnimationFrame(frame);
+  }, [centerActiveTimeframe, chartFocus.isFocused, mobile, state.ready, tf]);
+  useEffect(() => {
+    const strip = timeframesRef.current;
+    if (!strip || typeof ResizeObserver === 'undefined') return;
+    let width = strip.getBoundingClientRect().width;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      const nextWidth = strip.getBoundingClientRect().width;
+      if (Math.abs(nextWidth - width) < 0.5) return;
+      width = nextWidth;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(centerActiveTimeframe);
+    });
+    observer.observe(strip);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, [centerActiveTimeframe]);
   useEffect(() => {
     void store.initialize();
   }, []);
   useEffect(() => {
     if (!state.ready || !hostRef.current || !headerRef.current || !sourceRef.current) return;
-    const chart = new ChartEngine(hostRef.current, headerRef.current, sourceRef.current, {
-      defaults: (type) => store.getSnapshot().app.drawingDefaults[type] ?? {},
-      commit: (symbol, drawings, label) => store.commitDrawings(symbol, drawings, label),
-      selection: setSelected,
-      tool: setTool,
-      view: (symbol, timeframe, range) =>
-        store.updateSymbol(symbol, (s) => ({
-          ...s,
-          preferences: { ...s.preferences, views: { ...s.preferences.views, [timeframe]: range } },
-        })),
-    });
+    const chart = new ChartEngine(
+      hostRef.current,
+      headerRef.current,
+      sourceRef.current,
+      {
+        defaults: (type) => store.getSnapshot().app.drawingDefaults[type] ?? {},
+        commit: (symbol, drawings, label) => store.commitDrawings(symbol, drawings, label),
+        selection: setSelected,
+        tool: setTool,
+        view: (symbol, timeframe, range) =>
+          store.updateSymbol(symbol, (s) => ({
+            ...s,
+            preferences: {
+              ...s.preferences,
+              views: { ...s.preferences.views, [timeframe]: range },
+            },
+          })),
+      },
+      legendRef.current ?? undefined,
+    );
     engine.current = chart;
     return () => {
       chart.destroy();
@@ -230,15 +279,22 @@ export function App() {
   }, [s.drawings, s.indicators, s.preferences.magnet, s.preferences.legacyVolume, tool]);
   useEffect(() => {
     const keyboard = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).closest('input,select,textarea,[contenteditable]')) return;
       if (e.key === 'Escape') {
+        const hadGesture = !!engine.current?.controller?.machine.gesture;
+        if (!sheet && !help && !hadGesture && tool === 'select' && !chartFocus.isFocused) return;
+        e.preventDefault();
         engine.current?.controller?.cancel();
         setTool('select');
-        setSheet(null);
-        setHelp(false);
+        if (sheet || help || hadGesture || tool !== 'select') {
+          if (sheet) setSheet(null);
+          if (help) setHelp(false);
+          return;
+        }
+        if (chartFocus.isFocused) void chartFocus.exit();
         return;
       }
-      if ((e.target as HTMLElement).closest('input,select,textarea,[contenteditable]')) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('input,select,textarea,[contenteditable]')) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         engine.current?.controller?.cancel();
@@ -253,7 +309,7 @@ export function App() {
     };
     window.addEventListener('keydown', keyboard);
     return () => window.removeEventListener('keydown', keyboard);
-  }, [selected]);
+  }, [selected, sheet, help, tool, chartFocus.isFocused, chartFocus.exit]);
   useEffect(() => {
     const save = () => engine.current?.flushView();
     window.addEventListener('pagehide', save);
@@ -281,6 +337,11 @@ export function App() {
     engine.current?.controller?.setTool(next);
     setTool(next);
     setSheet(null);
+  };
+  const manageIndicators = () => {
+    setRightTab('indicators');
+    setRight(true);
+    if (mobile || chartFocus.isFocused) setSheet('indicators');
   };
   const pickDrawing = (id: string) => {
     engine.current?.setSelection(id);
@@ -534,8 +595,16 @@ export function App() {
       onChange={(watchlist) => store.updateApp({ watchlist })}
     />
   );
+  const chartIndicators = [...s.indicators].sort(
+    (a, b) => Number(a.type === 'Volume') - Number(b.type === 'Volume'),
+  );
+  const showLegacyVolume =
+    s.preferences.legacyVolume !== false && !s.indicators.some((i) => i.type === 'Volume');
   return (
-    <div className={`app-shell ${tablet && sheet ? 'tablet-context-open' : ''}`}>
+    <div
+      ref={chartFocus.containerRef}
+      className={`app-shell ${tablet && sheet ? 'tablet-context-open' : ''} ${chartFocus.isFocused ? 'chart-focus' : ''}`}
+    >
       <header className="topbar" inert={modal} aria-hidden={modal}>
         <a href="/" className="brand" aria-label="Atlas home">
           <span className="brand-icon">
@@ -610,7 +679,7 @@ export function App() {
               <ChevronRight size={13} />
               <span>{companies[symbol] ?? 'US Equity'}</span>
             </div>
-            <div className="timeframe-buttons">
+            <div className="timeframe-buttons" ref={timeframesRef}>
               {timeframes
                 .filter((t) => supportsTimeframe(providers[state.app.provider], t))
                 .map((t) => (
@@ -651,6 +720,14 @@ export function App() {
                 </option>
               </select>
               <IconButton
+                className="focus-toggle"
+                label={chartFocus.isFocused ? 'Exit chart fullscreen' : 'Enter chart fullscreen'}
+                active={chartFocus.isFocused}
+                onClick={() => void (chartFocus.isFocused ? chartFocus.exit() : chartFocus.enter())}
+              >
+                {chartFocus.isFocused ? <Minimize2 size={18} /> : <Expand size={18} />}
+              </IconButton>
+              <IconButton
                 label={right ? 'Collapse details' : 'Expand details'}
                 onClick={() => setRight(!right)}
               >
@@ -666,6 +743,20 @@ export function App() {
                 onClick={() => chooseTool('select')}
               >
                 <MousePointer2 size={19} />
+              </IconButton>
+              <IconButton
+                label="Zoom in"
+                className="rail-zoom"
+                onClick={() => engine.current?.zoom(0.8)}
+              >
+                <ZoomIn size={17} />
+              </IconButton>
+              <IconButton
+                label="Zoom out"
+                className="rail-zoom"
+                onClick={() => engine.current?.zoom(1.25)}
+              >
+                <ZoomOut size={17} />
               </IconButton>
               <div className="rail-divider" />
               <IconButton
@@ -763,7 +854,7 @@ export function App() {
               </IconButton>
             </nav>
             <div className="chart-stage">
-              <div className="chart-overlay">
+              <div className="chart-overlay" role="group" aria-label={`${symbol} chart legend`}>
                 <div className="chart-heading">
                   <span className="status-dot" />
                   <b>{symbol}</b>
@@ -773,48 +864,53 @@ export function App() {
                   </span>
                 </div>
                 <div ref={headerRef} className="ohlc-header" data-testid="ohlc-header" />
-                <div className="indicator-chips">
-                  {s.indicators.map((i) => (
-                    <div
-                      className={`indicator-chip ${i.visible ? '' : 'hidden-indicator'}`}
-                      key={i.id}
-                    >
-                      <span style={{ color: i.color }}>
-                        {i.type === 'Volume' ? 'Volume' : `${i.type} ${i.period}`}
+                <div className="indicator-chips" ref={legendRef}>
+                  {chartIndicators.map((i) => {
+                    const repeatedPeriod =
+                      i.type !== 'Volume' &&
+                      s.indicators.some(
+                        (other) =>
+                          other.id !== i.id && other.type !== 'Volume' && other.period === i.period,
+                      );
+                    return (
+                      <div
+                        className={`indicator-chip ${i.visible ? '' : 'hidden-indicator'}`}
+                        key={i.id}
+                        data-indicator-id={i.id}
+                      >
+                        <span className="indicator-name" style={{ color: i.color }}>
+                          {i.type === 'Volume'
+                            ? 'Volume'
+                            : `${i.type} ${i.period}${repeatedPeriod ? ` ${i.source.toUpperCase()}` : ''}`}
+                        </span>
+                        <span className="indicator-value" data-indicator-value />
+                        {i.type === 'Volume' && (
+                          <span className="indicator-average">
+                            <span>MA20</span>
+                            <span data-volume-average />
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {showLegacyVolume && (
+                    <div className="legacy-volume-chip" data-legacy-volume>
+                      <span className="indicator-name">Volume</span>
+                      <span className="indicator-value" data-volume-value />
+                      <span className="indicator-average">
+                        <span>MA20</span>
+                        <span data-volume-average />
                       </span>
-                      <IconButton
-                        label={`${i.visible ? 'Hide' : 'Show'} chip ${i.type} ${i.period}`}
-                        onClick={() => store.updateIndicator(symbol, i.id, { visible: !i.visible })}
-                      >
-                        {i.visible ? <Eye size={13} /> : <EyeOff size={13} />}
-                      </IconButton>
-                      <IconButton
-                        label={`${i.locked ? 'Unlock' : 'Lock'} chip ${i.type} ${i.period}`}
-                        active={i.locked}
-                        onClick={() => store.updateIndicator(symbol, i.id, { locked: !i.locked })}
-                      >
-                        {i.locked ? <LockKeyhole size={12} /> : <UnlockKeyhole size={12} />}
-                      </IconButton>
-                      <IconButton
-                        label={`Manage ${i.type} ${i.period}`}
-                        onClick={() => {
-                          setRightTab('indicators');
-                          setRight(true);
-                          if (window.innerWidth < 1100) setSheet('indicators');
-                        }}
-                      >
-                        <Settings2 size={12} />
-                      </IconButton>
-                      <IconButton
-                        label={`Remove chip ${i.type} ${i.period}`}
-                        disabled={i.locked}
-                        onClick={() => store.removeIndicator(symbol, i.id)}
-                      >
-                        <Trash2 size={12} />
-                      </IconButton>
                     </div>
-                  ))}
+                  )}
                 </div>
+                <IconButton
+                  className="manage-indicators"
+                  label="Manage indicators"
+                  onClick={manageIndicators}
+                >
+                  <Settings2 size={17} />
+                </IconButton>
               </div>
               <div className="chart-host" ref={hostRef} data-testid="chart" />
               {(loading || !state.ready) && (
@@ -841,14 +937,6 @@ export function App() {
               {!mobile && drawingControls && (
                 <div className="floating-drawing-toolbar">{drawingControls}</div>
               )}
-              <div className="chart-zoom">
-                <IconButton label="Zoom in" onClick={() => engine.current?.zoom(0.8)}>
-                  <ZoomIn size={16} />
-                </IconButton>
-                <IconButton label="Zoom out" onClick={() => engine.current?.zoom(1.25)}>
-                  <ZoomOut size={16} />
-                </IconButton>
-              </div>
             </div>
           </div>
           <div
@@ -871,8 +959,8 @@ export function App() {
           </div>
           <div ref={sourceRef} className="data-source" />
           {STATIC_HOSTING && (
-            <p className="muted small">
-              GitHub Pages：Demo／畫線／指標可用；Yahoo 與 SEC 財報需要 backend，本頁暫不可用。
+            <p className="static-hosting-note" title={staticHostingText}>
+              {staticHostingText}
             </p>
           )}
           <div className="events-source">

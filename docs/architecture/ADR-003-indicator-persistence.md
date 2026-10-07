@@ -15,4 +15,8 @@ Export awaits queued writes and produces a versioned JSON for all records. Impor
 Unit + browser regressions require AAPL 24/58 and NVDA 43/56 with locked states to survive switching and reload without contamination. AAPL drawings must disappear on NVDA and return on AAPL. Data loading uses AbortController and generation guards to discard stale requests.
 
 ## V1 extension (2026-10-06)
+
+### Physical-UAT correction (2026-10-07)
+
+Volume rendering pairs direction-colored HistogramSeries with a fixed full-window MA20 LineSeries on the same overlay scale. Existing Volume period1 records and schema remain valid; the stored MA lookback is ignored for Volume. Instance color/width styles the volume average; visibility and removal apply to both. Any explicit Volume suppresses legacy volume regardless of scope/visibility, preserving old no-resurrection behavior. Time-keyed cached values support a passive numerical legend through the existing crosshair RAF, with N/A before warmup and no React hover updates or frame persistence. Indicator actions remain in the per-symbol panel.
 SMA, SMA-seeded EMA and Volume are id-based symbol-owned instances. Volume ignores the MA lookback and uses actual provider volume. Legacy workspaces retain their always-visible volume overlay until an explicit Volume instance is added; its visibility and lock are then symbol-owned. Presets snapshot configuration, never IDs or symbol references; applying appends deep-copied new instances. Existing locked instances remain intact.

@@ -136,7 +136,7 @@ export function IndicatorPanel({
           <option value="Volume">Volume</option>
         </select>
         {isVolume ? (
-          <span>Source: volume · period ignored</span>
+          <span>紅綠量柱 · 均量 MA 20</span>
         ) : (
           <>
             <label className="sr-only" htmlFor={periodId}>
@@ -284,6 +284,9 @@ export function IndicatorPanel({
                   Color
                   <input type="color" name="color" defaultValue={indicator.color} />
                 </label>
+                {isIndicatorVolume && (
+                  <p className="muted small">顏色套用於 MA 20 均量線；量柱依 K 線漲跌顯示紅綠。</p>
+                )}
                 {!isIndicatorVolume && (
                   <label>
                     Width
