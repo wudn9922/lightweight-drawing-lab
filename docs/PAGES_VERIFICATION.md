@@ -1,6 +1,6 @@
 # Atlas GitHub Pages hosting verification
 
-Updated: 2026-10-07. Hosting-only extension of the verified V1 workspace. All local verification gates passed. Source publication succeeded. Website deployment requires the owner to enable Pages → Source: GitHub Actions. No live website is claimed before actual verification.
+Updated: 2026-10-07. Hosting-only extension of the verified V1 workspace. All local verification gates passed. **Source publication and website deployment COMPLETE.** Public HTTPS HTML/resources returned200; remote iPhone WebKit functional smoke passed. Physical-device UAT remains pending.
 
 ## Scope
 
@@ -39,10 +39,22 @@ User action required: in ChatGPT's GitHubconnection settings/manageinstallation,
 
 After the user confirmed authorization, GitHub installation168757214 onwudn9922 was visible and its repository list includedlightweight-drawing-lab. Targetbranchlist remainedempty. Contents publication subsequently succeeded; actual commit/Pages results are recorded in the following section.
 
-## Source published / Pages setup pending
+## Historical source published / Pages setup pending (resolved below)
 
 Successful source commit: [5f87026](https://github.com/wudn9922/lightweight-drawing-lab/commit/5f87026e5a5983bc6199d4ffb103fd89c2f018a4),172files onmain. Contents/workflow authorization issue isresolved.
 
 [GitHubActions run37580250183](https://github.com/wudn9922/lightweight-drawing-lab/actions/runs/37580250183) passed npmci/unit136/lint/build:pages onthehostedrunner, thenfailed only atconfigure-pages because PagesGET returned404. Deployment wasskipped. Explicit POSTPages withbuild_typeworkflow returned403 `Resource not accessible by integration`.
 
 Official actions/configure-pages/action.yml states automaticenablement requires a token otherthanGITHUB_TOKEN, and Appadministration:write/pages:write grants. CurrentAppdoesnot have thosegrants. No secret/PATisneededfornormalActionsdeployment once theowner selectsSettings→Pages→SourceGitHubActions. Userwasgiven that exactsetupURL/action. Afterenablement, rerunworkflow andcheckactualHTTPSHTML/JS/icons/manifest/worker.
+
+## Verified live deployment
+
+Owner enabled SourceGitHubActions; [run37596025627](https://github.com/wudn9922/lightweight-drawing-lab/actions/runs/37596025627) completed build anddeploySUCCESS for mainf29994ae92997c52430229d55b2da6b49ca8dcf0. Hostednpmci/test136/lint/build/configure/artifact/deploy allPASS.
+
+**Verified URL: https://wudn9922.github.io/lightweight-drawing-lab/**
+
+HTML200, allreferencedJS/CSS/icons/manifest/serviceworker200, correctprojectbase. Exactpublicresource hashes in[HTTPevidence](pages-live-http.json). RemoteiPhoneWebKitPASS: DemoOHLC, SMA24lock/reload, unavailableSECpanel, correctPWAregistrationscope, zeroAPIrequests andruntimeerrors; TLSverificationenabled. [Browserevidence](pages-live-browser-smoke.json). ThisisheadlessWebKit, notphysicaliPhoneSafari.
+
+RemoteChromium navigation hitmanagedproxyCAtrusterror beforeUI. AutomaticreviewrejectedchangingglobalChromiumNSStrustbecauseitpersistentlychangesfuturetrustboundaries; nochangeexecuted andTLSverificationwasnotdisabled. HTTPS/curl+remoteWebKitpassed; existinglocalfourprofilePagesregression8PASS isunchanged. Thisenvironment-onlyremoteChromiumsmoke isBLOCKED, notapplicationPASS.
+
+Sourcecode/coreengines unchangedaftertestedpublication; latestdocumentationcommit recordsdeployment. Futuremaincommitsautodeploy. Yahoo/SEC remainexplicitlybackend-required inPages; no fakefinancials.

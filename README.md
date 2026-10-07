@@ -6,7 +6,7 @@ V1 baseline engineering verification: **135 unit tests and 78 browser cases pass
 
 ## GitHub Pages
 
-The same Atlas source supports the project path `/lightweight-drawing-lab/`. Implementation and local verification are ready; repository authorization and source commit succeeded on 2026-10-07. The repository owner must enable Settings → Pages → GitHub Actions once; deployment can then run (see hosting verification). The Pages build is separate from the normal local build:
+The same Atlas source supports the project path `/lightweight-drawing-lab/`. Implementation and local verification are ready; source publication and GitHub Pages deployment succeeded on 2026-10-07. **Open [Atlas](https://wudn9922.github.io/lightweight-drawing-lab/) in your browser.** HTTPS resources and remote iPhone WebKit were verified; physical Safari UAT remains pending (see hosting verification). The Pages build is separate from the normal local build:
 
 ```sh
 npm ci
@@ -14,7 +14,7 @@ npm run build:pages
 npm run test:pages
 ```
 
-`dist-pages/` contains only static files. `.github/workflows/pages.yml` builds and deploys it after a commit to `main`; enable **Settings → Pages → Source → GitHub Actions** in the repository. The intended URL is `https://wudn9922.github.io/lightweight-drawing-lab/`; availability must be verified after deployment. To preview locally, run `VITE_STATIC_HOSTING=1 VITE_PUBLIC_BASE=/lightweight-drawing-lab/ npx vite preview --outDir dist-pages --port 4175` and open that project path. `npm run test:pages` starts its own isolated preview, so stop a manual server on 4175 before running the tests.
+`dist-pages/` contains only static files. `.github/workflows/pages.yml` builds and deploys it after a commit to `main`; the repository is already configured with **Settings → Pages → Source → GitHub Actions**. The verified URL is `https://wudn9922.github.io/lightweight-drawing-lab/`. To preview locally, run `VITE_STATIC_HOSTING=1 VITE_PUBLIC_BASE=/lightweight-drawing-lab/ npx vite preview --outDir dist-pages --port 4175` and open that project path. `npm run test:pages` starts its own isolated preview, so stop a manual server on 4175 before running the tests.
 
 GitHub Pages cannot run the existing Node Yahoo/SEC proxies. **Demo prices, drawings, indicators, Watchlist, local persistence, research backtests, foreground alerts and settings backup work; live Yahoo, corporate events and SEC financials are unavailable there.** The UI says so, disables selecting Yahoo, and never substitutes fabricated financials. Valid imported settings keep their saved provider; an imported Yahoo selection shows a backend-required error with a manual Demo button. Static Yahoo bypasses its local market cache so cached results cannot conceal missing backend availability. The normal `npm run dev` / `npm run build` / `npm run preview` paths retain the existing providers and backend behavior.
 

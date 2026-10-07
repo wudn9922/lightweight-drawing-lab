@@ -1,8 +1,8 @@
 # Atlas V1 — current workspace state
 
-Updated: **2026-10-07**. V1 remains **COMPLETE WITH EXTERNAL UAT PENDING**. Authorized GitHub Pages hosting implementation, Sol review and all local tests are complete. The user has authorized the target repository; the current GitHub App installation on wudn9922 now includes lightweight-drawing-lab. **Source committed; publication requires the repository owner to enable Pages.**
+Updated: **2026-10-07**. V1 remains **COMPLETE WITH EXTERNAL UAT PENDING**. Authorized GitHub Pages hosting implementation, Sol review and all local tests are complete. The user has authorized the target repository; the current GitHub App installation on wudn9922 now includes lightweight-drawing-lab. **GitHub Pages deployment COMPLETE; public HTTPS site verified.**
 
-**Current exact next action:** user sets repository Settings → Pages → Build and deployment → Source to GitHub Actions. The App cannot create the Pages site (POST returns403; current grants omit administration/pages). The source commit is `5f87026e5a5983bc6199d4ffb103fd89c2f018a4`. GitHub Actions run37580250183 passed ci/unit/lint/Pagesbuild, then failed only at configure-pages because the site is not enabled. Once the setting is enabled, rerun the workflow and verify HTTPS/asset responses; no V1 implementation redo is needed.
+**Current exact next action:** user opens https://wudn9922.github.io/lightweight-drawing-lab/ in iPhone Safari for physical-device UAT. Owner enabled Pages Source=workflow; successful hosted deployment run37596025627 published mainf29994ae92997c52430229d55b2da6b49ca8dcf0. HTTPS HTML and every referenced asset/icon/manifest/worker returned200. Remote iPhone WebKit confirmed Demo, locked SMA reload, static SEC unavailable, correct worker scope, zero API requests/runtime errors with TLS verification enabled. No further Pages authorization step or V2 work.
 
 Latest verification: clean npmci; **136 unit tests/18 files; lint; normal and Pages builds; 86 browser PASS/10 expected SKIP/0 FAIL**, all four profiles. Ready source archive: `scratch/atlas-github-pages-ready.zip`; static artifact: `scratch/atlas-pages-static-ready.zip`. Original4173preview stillHTTP200.
 
@@ -82,3 +82,9 @@ Authorization rechecked after user confirmation: installation168757214 onwudn992
 ## Source publication checkpoint
 
 Source main commit5f87026e5a5983bc6199d4ffb103fd89c2f018a4 successfully published172files. BootstrapREADMEcommit5a123127aed8f19f92677731c9d523d16abb3c7f. Appcontents/workflows rights nowwork. GitHubActions run37580250183: npmci/test136/lint/PagesbuildPASS, configure-pagesFAIL404 (site not enabled), deploymentSKIP. POSTPages still403. Officialactions/configure-pages action.yml saysenablement requiresanother token withadministration:write/pages:write; GITHUB_TOKEN cannotautoenable. No newsecret/PATrequested; user asked toenable SourceGitHubActions viaSettingsPages once. Afterenablement, rootcanrerunActions withcurrentactionswrite scope.
+
+## Hosting completion — 2026-10-07
+
+Userenabled PagesSourceGitHubActions; workflow_dispatch run37596025627 build/deploySUCCESS. Websitehttps://wudn9922.github.io/lightweight-drawing-lab/ actuallyHTTP200; script/styles/icons/manifest/workerHTTP200. Evidence docs/pages-live-http.json anddocs/pages-live-browser-smoke.json. PublicremoteiPhoneWebKitPASS withTLSverificationenabled, Demo/SMAlock/reload/PWA/SECunavailable/zeroAPIs/errors. RemoteChrome navigationblocked byCloudproxyCAtrust; attemptedglobalNSStrustchange wasrejected byautomaticapprovalreview (futuretrustboundary beyondtask), notexecuted. NoApplicationbug; normaldesktop/mobile/iphone/ipad Pages regressionsalready8PASS. PhysicaliPhone/iPadSafariUAT remainspending. Corecodeunchanged; documentationonlycompletioncommit next.
+
+Hostingprogress100%; V1Webscopecomplete. Static limitations remainYahoo/SECbackendunavailable, visiblysimulatedprices, localforegroundalerts; no paidservice introduced. Futuremaincommits triggerPagesworkflowautomatically.

@@ -112,3 +112,7 @@ Primary ACCEPT HOST-04 documentation cleanup: mark intermediate pending-regressi
 Source publication retry: userauthorizedwudn9922installation168757214;172files committedmain5f87026. HostedActionsci/unit136/lint/PagesbuildPASS; configurePagesonlyFAILbecause site notenabled. CurrentAppstillcannotcreatePages(403; missingadministration/pages). OwnerSourceGitHubActionssetting isnecessary externalsetup, supportedbyofficialconfigure-pagesactiondescription. No code/testfailure andnosecret/PATworkaround.
 
 Primary ACCEPT HOST-05: update currentpublication summary withauthorizedinstallation/sourcecommit; markearlier no-commit/no-authorization paragraphs historical. Currentblocker isownerPagesenablement only; sourcecommit andhostedchecks succeeded.
+
+## Live hosting completion
+
+OwnerenabledPagesSourceworkflow; run37596025627 build+deploySUCCESS. HTML/allassets200 andremoteiPhoneWebKitDemo/SMAlockreload/PWAscope/staticSEC/noAPIs/noerrorsPASS withTLSverificationenabled. Evidence docs/pages-live-http.json/pages-live-browser-smoke.json. PhysicalSafariUATpending. RemoteCloudChromiumblockedbyproxyCAtrust; globalNSSCAmodificationwasrejectedbyautomaticreview duefuturetrustboundary andnotexecuted. No insecureTLSbypass. Alllocal136unit/86browserPASS+10expectedSKIP/lint/buildremainvalid; onlydocs/evidencechangeafterpublication. No V2featurework.
