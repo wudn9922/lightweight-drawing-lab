@@ -1,0 +1,40 @@
+# Atlas GitHub Pages hosting verification
+
+Updated: 2026-10-07. Hosting-only extension of the verified V1 workspace. All local verification gates passed. Target repository authorization is now confirmed; publication is in progress. No live website is claimed before actual verification.
+
+## Scope
+
+Same V1 engines and IndexedDB schema. Separate static project-path build, scoped PWA, explicit Yahoo/SEC unavailability, and free GitHub Pages workflow. No new research features, cloned workspace, extracted archives or Git initialization.
+
+## Gates
+
+Passed: clean `npm ci`; **136/136 unit tests (18 files)**; lint both before and after generated Pages output; TypeScript/normal production build; separate Pages build; **8/8 isolated Pages production browser cases** (40.3 seconds). The existing V1 browser regression also passed: **78 PASS / 10 expected SKIP / 0 FAIL (88 cases, 8.1 minutes)**. No Phase1/2/V1 regression was found. Skips retain the established desktop-only stress and touch-only applicability; no mobile coverage was reduced.
+
+Pages profiles: Desktop Chromium2PASS, Mobile Chromium2PASS, iPad WebKit2PASS, iPhone WebKit2PASS. Coverage includes subpath assets/icons/manifest, registration scope, preserving another app's cache while deleting only Atlas's stale scoped cache, touch-mode drawing and locks, symbol-owned SMA isolation/reload, portable Yahoo-provider backup and manual Demo recovery with zero backend requests, and offline Demo/SMA reopening. WebKit's forced-offline mode prevents worker dispatch, so its offline tests stop an isolated real preview server after caching. No physical Safari/FPS claim.
+
+Build warnings are the existing third-party Zod Rollup annotation notices; lint is clean.
+
+## Review
+
+Plan and read-only implementation review: GPT-6.1 Sol High. Frozen implementation: GPT-6 Luna Max. Primary triage accepts removal of the unplanned Yahoo import rejection and adding `dist-pages/**` to ESLint ignores. Static Yahoo cache bypass is accepted to make backend absence explicit; normal cache behavior stays unchanged. Gemini/Claude independent review remains unavailable; REVIEW_PACKAGE.md records the handoff.
+
+## Publication
+
+Target: `wudn9922/lightweight-drawing-lab`, initial empty `main`. Intended website: `https://wudn9922.github.io/lightweight-drawing-lab/`. The connected user is wudn9922, but the only available chatgpt-codex-connector installation is on saku0827 and covers saku0827/fast-launch-api. It does not cover the target repository. Public reads succeed; mutation fails. No remote commit was created.
+
+Combined browser evidence: **86 passed / 10 expected skipped** across normal V1 and static project-path suites. All four profiles passed both suites.
+
+## Historical authorization blocker — resolved by user authorization
+
+- CLI PUT repository contents/README.md: HTTP403, `Resource not accessible by integration`.
+- Connected GitHub create_file action: sameHTTP403 / FORBIDDEN.
+- POST repository Pages with build_type=workflow: sameHTTP403.
+- Target branches remainempty afterattempts. No source was pushed or deployed.
+- Intended public site actually requested overHTTPS: HTTP404. It is not a working testURL.
+- Available App installation152596461 belongs to saku0827, repositoryselectionall but its accessible list is only saku0827/fast-launch-api; targetowner wudn9922 is not covered. App contents/workflows/actions writepermissions on its owninstallation do not authorize this otherrepository.
+
+User action required: in ChatGPT's GitHubconnection settings/manageinstallation, install/authorize **ChatGPT Codex Connector** for wudn9922/lightweight-drawing-lab. Do not paste tokens/credentials into chat. After authorization, continue API publication from this workspace; rereadremote branches beforewrite. Pages may additionally require its owner to choose Settings→Pages→GitHubActions because currentApp permission metadata has no Pages/administration grant. Preparedsource/workflow/testresults remainready.
+
+## Authorization retry
+
+After the user confirmed authorization, GitHub installation168757214 onwudn9922 was visible and its repository list includedlightweight-drawing-lab. Targetbranchlist remainedempty. Publication is now retried through supported authenticatedAPIs; contentswrite andPagesdeployment results will be recorded separately.

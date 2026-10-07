@@ -1,0 +1,18 @@
+# ADR-003 — Per-symbol indicator and storage isolation
+
+Status: Accepted / frozen for Phase 1.
+
+IndicatorInstance is not MA1/MA2: `{id, symbol, type, period, source, visible, locked, lineWidth, color, scope}`. First implementation is SMA, registered in IndicatorRegistry; EMA/WMA can be added later. A symbol can have zero or many instances. Defaults are empty, so no unrequested settings are silently imposed.
+
+SMA applies across timeframes using the same lookback period. `scope.timeframe` reserves per-timeframe overrides, while Phase 1 UI only exposes symbol scope. IndicatorEngine owns LineSeries by instance id and only recomputes when data revision/period/source changes. Locked instances allow visibility or unlock updates; period/source/style edits and removal are rejected at AppStore as well as disabled in UI.
+
+IndexedDB database `atlas-terminal`, schema version 1, has `symbols` (keyPath `symbol`) and `app` (settings key). Each symbol record contains drawings, indicators, magnet setting, preferred timeframe and view ranges by timeframe. App settings contain active symbol, watchlist order and provider. Drawing history is a separate per-symbol in-memory map.
+
+AppStore publishes immutable snapshots on commits and serializes writes. A pending counter prevents premature SAVED status. Write failures are tracked per record until that record is successfully saved; storage failures remain visible and export refuses to claim a complete backup. No persistence occurs per drawing frame. Stored view ranges include the source bar count; restoring against shorter/longer provider history adjusts relative to the data tail, preventing an empty chart after switching providers. Drawing anchors remain canonical timestamps independently of view preferences. Pan/zoom view persistence occurs at gesture completion or wheel inactivity, never on each range-change frame.
+
+Export awaits queued writes and produces a versioned JSON for all records. Import validates bounds, finite anchors, symbols, point counts, periods, unique ids and symbol ownership via Zod, then atomically replaces both stores in a single transaction. Import is replacement, not merge; UI guidance recommends exporting first. A future schema upgrade must supply an explicit IndexedDB migration and import-version adapter. No localStorage state is used.
+
+Unit + browser regressions require AAPL 24/58 and NVDA 43/56 with locked states to survive switching and reload without contamination. AAPL drawings must disappear on NVDA and return on AAPL. Data loading uses AbortController and generation guards to discard stale requests.
+
+## V1 extension (2026-10-06)
+SMA, SMA-seeded EMA and Volume are id-based symbol-owned instances. Volume ignores the MA lookback and uses actual provider volume. Legacy workspaces retain their always-visible volume overlay until an explicit Volume instance is added; its visibility and lock are then symbol-owned. Presets snapshot configuration, never IDs or symbol references; applying appends deep-copied new instances. Existing locked instances remain intact.

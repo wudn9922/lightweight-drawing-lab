@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist-pages/
+scratch/
+*.zip
+playwright-report/
+test-results/
+*.log
+*.tsbuildinfo
+
+dist-server/
