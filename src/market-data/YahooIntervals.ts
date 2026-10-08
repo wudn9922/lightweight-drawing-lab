@@ -8,6 +8,7 @@ export const yahooIntervals = {
   '1H': { interval: '60m', range: '3mo' },
   '1D': { interval: '1d', range: '5y' },
   '1W': { interval: '1wk', range: '10y' },
+  '1M': { interval: '1mo', range: '10y' },
 } as const satisfies Partial<Record<Timeframe, { interval: string; range: string }>>;
 
 export type YahooTimeframe = keyof typeof yahooIntervals;

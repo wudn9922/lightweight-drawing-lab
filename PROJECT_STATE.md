@@ -1,5 +1,19 @@
 # Atlas V1 — current workspace state
 
+## Active UAT extension — 1M / timeframe ownership / real delayed prices (2026-10-08)
+
+Progress: implementation 100%, verification 95%; publication and live proof for the current source snapshot are pending. The current workspace remains the source of truth. No engine replacement or V2 work. The accepted extension adds calendar 1M, atomic schema/export v3 migration, symbol-and-timeframe ownership for indicators/drawings/presets/history/alerts, and preserved legacy records with their IDs, anchors, styles, and locks. Demo has 600 completed monthly bars; Yahoo uses native monthly data and calendar bucket normalization. Existing drawing gestures remain covered.
+
+Pages now uses validated delayed snapshots from real Yahoo payloads. SMCI/NFLX fixtures retain already split-adjusted OHLC and their 2026-10-06 quote metadata; no additional split division is applied. Snapshot refresh covers 20 fixed symbols and seven intervals, with explicit unavailable states and no Demo fallback. Demo remains visibly simulated, and SEC financials still require a backend.
+
+Final gates: clean `npm ci`; 156 unit tests across 19 files; lint, typecheck, normal build, and Pages build all pass. Normal browser gate: 98 passed, 10 original expected skips, 0 failed (11.5 minutes). Pages browser gate: 16 passed, 0 failed (1.8 minutes). Combined: 114 passed, 10 expected skips. The first Pages run had three test-only failures: mobile watchlist rows were hidden behind the drawer, and the service worker intercepted the mocked unknown-snapshot 404. A mobile-aware quote helper and service-worker blocking for only the snapshot-mock test fixed them. The original offline/PWA tests still run with the service worker enabled; no assertions or skips were removed. The application source has not changed since the normal gate; the final test-only changes pass lint and typecheck.
+
+Next: primary will publish the verified source without force and then verify the live site with TLS-enabled HTTP checks and iPhone WebKit. No claim is made that this current source snapshot has been published. Independent external review and physical iPhone/iPad UAT remain pending. The earlier live deployment evidence below covers its own published revision.
+
+Review: Sol read-only review findings P1-MONTH-01 and P1-SCOPE-02 were accepted, fixed, and closed. Independent Gemini/Claude review is still pending.
+
+Relevant files: `src/market-data/SnapshotProvider.ts`, `SnapshotSchema.ts`, `YahooNormalizer.ts`, `YahooProvider.ts`, `CachedMarketDataProvider.ts`, `MarketTiming.ts`, `DemoProvider.ts`; `src/chart/TimeMapper.ts`, `ChartEngine.ts`; `src/storage/schema.ts`, `IndexedDBStore.ts`; `src/app/AppStore.ts`, `App.tsx`; `src/ui/IndicatorPanel.tsx`; `scripts/refresh-market.mjs`, `refresh-market.ts`, `market-symbols.json`; `.github/workflows/pages.yml`; `tests/splits-snapshot.test.ts`, `tests/fixtures/market`; `e2e/timeframe-scope-helper.ts`, `e2e/timeframe-ownership.spec.ts`, `e2e-pages/hosting.spec.ts`.
+
 ## iPhone screenshot UAT correction — COMPLETE (2026-10-07)
 
 V1 scope100%, authorized UAT correction100%; no V2. Same /workspace and public https://wudn9922.github.io/lightweight-drawing-lab/ remain source and test site. Source commit1426afc9e15d082a052424882cdf05b7fd62e12c, hosted Actions37615088219 build/deploySUCCESS; actual HTTPS/new assets and remoteiPhoneWebKit verified. Documentation/evidence completion commit includes these results without further frontend changes.

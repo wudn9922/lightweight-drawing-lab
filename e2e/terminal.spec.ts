@@ -134,6 +134,9 @@ test('press-drag-release, endpoint and body edits, undo/redo, locked pan and tim
     await page.getByRole('button', { name: `Timeframe ${tf}`, exact: true }).click();
     await loaded(page);
     expect((await readSymbol(page))!.drawings[0].points).toEqual(locked.points);
+    await expect(page.locator('.chart-status')).toContainText(
+      tf === '1D' ? '1 DRAWINGS' : '0 DRAWINGS',
+    );
   }
 });
 test('Horizontal Line, export/import and locked SMA UI guards', async ({ page }) => {

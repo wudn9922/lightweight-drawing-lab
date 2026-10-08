@@ -260,6 +260,7 @@ export class CachedMarketDataProvider implements MarketDataProvider {
   private readonly ttlMs: number;
   private readonly maxEntries: number;
   private readonly now: () => number;
+  private readonly cacheIdentity: string;
   private readonly inFlight = new Map<string, Promise<CacheValue>>();
   private dbPromise?: Promise<IDBPDatabase<MarketCacheSchema>>;
 
@@ -268,6 +269,7 @@ export class CachedMarketDataProvider implements MarketDataProvider {
     options: CachedMarketDataOptions = {},
   ) {
     this.id = provider.id;
+    this.cacheIdentity = provider.cacheVersion ? `${provider.id}:${provider.cacheVersion}` : provider.id;
     this.supportedTimeframes = provider.supportedTimeframes;
     this.capabilities = provider.capabilities;
     this.dbName = options.dbName ?? MARKET_CACHE_DATABASE;
@@ -289,7 +291,7 @@ export class CachedMarketDataProvider implements MarketDataProvider {
     signal?.throwIfAborted();
     if (!this.supportedTimeframes.includes(timeframe)) throw new Error('Unsupported timeframe');
     const normalizedRange = normalizeRange(range);
-    const identity = makeIdentity(this.id, symbol, 'bars', timeframe, normalizedRange);
+    const identity = makeIdentity(this.cacheIdentity, symbol, 'bars', timeframe, normalizedRange);
     const result = await this.request(
       identity,
       () => this.provider.getBars(identity.symbol, timeframe, range),
@@ -300,7 +302,7 @@ export class CachedMarketDataProvider implements MarketDataProvider {
 
   async getQuote(symbol: string, signal?: AbortSignal): Promise<Quote> {
     signal?.throwIfAborted();
-    const identity = makeIdentity(this.id, symbol, 'quote', '1D', { from: null, to: null });
+    const identity = makeIdentity(this.cacheIdentity, symbol, 'quote', '1D', { from: null, to: null });
     const result = await this.request(identity, () => this.provider.getQuote(identity.symbol), signal);
     return result as Quote;
   }
@@ -313,7 +315,7 @@ export class CachedMarketDataProvider implements MarketDataProvider {
   ): Promise<CorporateEventsResult> {
     signal?.throwIfAborted();
     const normalizedRange = normalizeRange(range);
-    const identity = makeIdentity(this.id, symbol, 'events', '1D', normalizedRange);
+    const identity = makeIdentity(this.cacheIdentity, symbol, 'events', '1D', normalizedRange);
     const getEvents = (this.provider as MarketDataProvider & {
       getCorporateEvents?: (
         symbol: string,

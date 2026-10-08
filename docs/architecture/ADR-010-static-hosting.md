@@ -17,3 +17,7 @@ A free GitHub Actions workflow builds/checks `main` and deploys the static artif
 Normal V1 regressions remain mandatory. Additional isolated production tests exercise the project subpath, all four browser profiles, touch drawing, MA isolation/locks, export/import, unavailable providers with zero API calls, worker cache scope, and offline reopening. Physical Safari UAT and external independent review remain pending.
 
 The static site supports simulated prices and research, not live market/fundamentals access. A future separately hosted HTTPS backend requires its own authorized deployment. IndexedDB is origin-scoped: GitHub Pages project paths do not isolate two Atlas installations under the same owner origin. This hosting change intentionally preserves the accepted database name/schema; use Export/Import when moving from another origin.
+
+## Authorized UAT extension (2026-10-07)
+
+[ADR-011](ADR-011-timeframe-ownership-and-snapshot-prices.md) supersedes historical cross-timeframe defaults and Demo-only static prices. 1M is calendar-aware. Drawings/indicators/history/volume now belong to symbol+timeframe with validated atomic v3 migration. Yahoo quote OHLC is source-split-adjusted, never divided again; real static delayed snapshots and as-of metadata are published by the existing hourly weekday Actions workflow. SEC still needs a backend. Previous unadjusted wording is historical and must not guide new price normalization.

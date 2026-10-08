@@ -54,6 +54,16 @@ function machine(
   };
 }
 
+it('assigns newly created drawings to the first anchor timeframe', () => {
+  const { m, commit } = machine();
+  m.setTool('horizontal');
+  m.begin({ x: 100, y: 100 }, 1, false);
+  m.end({ x: 100, y: 100 }, 1);
+  expect(commit).toHaveBeenCalledTimes(1);
+  expect(m.drawings[0].scope.timeframes).toEqual(['1D']);
+  expect(drawingSchema.parse(m.drawings[0]).scope.timeframes).toEqual(['1D']);
+});
+
 describe('Parallel Channel', () => {
   it('uses three release gestures and keeps P1/P2/P3 as canonical control anchors', () => {
     const defaultsStyle = {

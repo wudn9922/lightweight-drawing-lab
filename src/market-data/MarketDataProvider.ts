@@ -1,4 +1,4 @@
-export const timeframes = ['5m', '15m', '30m', '1H', '4H', '1D', '1W'] as const;
+export const timeframes = ['5m', '15m', '30m', '1H', '4H', '1D', '1W', '1M'] as const;
 export type Timeframe = (typeof timeframes)[number];
 /** Kept as a source-compatible alias for callers that used the former roadmap type. */
 export type PlannedTimeframe = Timeframe;
@@ -34,6 +34,8 @@ export interface BarResult {
   session: 'regular' | 'extended';
   delayed: boolean;
   adjusted: boolean;
+  priceBasis?: 'split-adjusted' | 'unadjusted' | 'unknown';
+  quote?: Quote;
   /** Retrieval time in Unix seconds (for Demo, its fixed simulation as-of). */
   asOf?: number;
   /** Explicit timestamp of the last normalized bar. */
@@ -43,6 +45,8 @@ export interface BarResult {
   cacheStatus?: CacheStatus;
 }
 export interface MarketDataProvider {
+  /** Normalization changes must not reuse an older incompatible cache. */
+  readonly cacheVersion?: string;
   readonly id: string;
   readonly supportedTimeframes: readonly Timeframe[];
   readonly capabilities?: Partial<MarketDataCapabilities>;
@@ -98,6 +102,8 @@ export const intervalSeconds: Record<Timeframe, number> = {
   '4H': 14400,
   '1D': 86400,
   '1W': 604800,
+  // Volatility sizing only. Monthly traversal and bar closes use calendar boundaries.
+  '1M': 30 * 86400,
 };
 export function normalizeSymbol(value: string): string {
   const symbol = value.trim().toUpperCase();

@@ -252,6 +252,9 @@ test('V1 channel, range measurements and vertical line share chart gestures and 
     await ready(page);
     expect((await readState(page))!.preferences.timeframe).toBe(timeframe);
     expect(canonicalDrawingSnapshot(await readDrawings(page))).toEqual(lockedSnapshots);
+    await expect(page.locator('.chart-status')).toContainText(
+      timeframe === '1D' ? '5 DRAWINGS' : '0 DRAWINGS',
+    );
   }
 
   await page.reload();
@@ -267,7 +270,7 @@ test('V1 channel, range measurements and vertical line share chart gestures and 
     version: number;
     symbols: SymbolState[];
   };
-  expect(exported.version).toBe(2);
+  expect(exported.version).toBe(3);
   const exportedAapl = exported.symbols.find((state) => state.symbol === 'AAPL');
   expect(exportedAapl).toBeDefined();
   expect(canonicalDrawingSnapshot(exportedAapl!.drawings)).toEqual(lockedSnapshots);

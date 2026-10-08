@@ -9,3 +9,4 @@ test-results/
 *.tsbuildinfo
 
 dist-server/
+public/market-data/

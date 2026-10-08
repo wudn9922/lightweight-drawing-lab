@@ -13,6 +13,10 @@ const eastern = new Intl.DateTimeFormat('en-US', {
 });
 /** Regular-session schedule, weekends excluded. Holidays require a production exchange calendar. */
 export function nextSessionTime(time: number, timeframe: Timeframe): number {
+  if (timeframe === '1M') {
+    const date = new Date(time * 1000);
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1) / 1000;
+  }
   let next = time + intervalSeconds[timeframe];
   if (timeframe === '1D') {
     while ([0, 6].includes(new Date(next * 1000).getUTCDay())) next += 86400;
@@ -66,6 +70,33 @@ function easternEpoch(year: number, month: number, day: number, hour: number, mi
 export function regularSessionOpen(year: number, month: number, day: number): number {
   return easternEpoch(year, month, day, 9, 30);
 }
+
+function calendarMonthTime(anchor: number, monthOffset: number): number {
+  const date = new Date(anchor * 1000);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + monthOffset, 1) / 1000;
+}
+
+/** Fractional month index relative to a UTC first-of-month anchor. */
+function calendarMonthLogical(time: number, anchor: number): number {
+  const anchorDate = new Date(anchor * 1000);
+  const date = new Date(time * 1000);
+  const monthOffset =
+    (date.getUTCFullYear() - anchorDate.getUTCFullYear()) * 12 +
+    date.getUTCMonth() - anchorDate.getUTCMonth();
+  const lower = calendarMonthTime(anchor, monthOffset);
+  const upper = calendarMonthTime(anchor, monthOffset + 1);
+  return monthOffset + (time - lower) / (upper - lower);
+}
+
+/** Calendar-aware extrapolation around the buffered timestamps. */
+function calendarMonthAtLogical(anchor: number, logicalOffset: number): number {
+  const lowerMonth = Math.floor(logicalOffset);
+  const fraction = logicalOffset - lowerMonth;
+  const lower = calendarMonthTime(anchor, lowerMonth);
+  const upper = calendarMonthTime(anchor, lowerMonth + 1);
+  return lower + fraction * (upper - lower);
+}
+
 export class TimeMapper {
   readonly times: number[];
   readonly lastRealLogical: number;
@@ -83,19 +114,36 @@ export class TimeMapper {
     if (!this.times.length) return 0;
     const i = Math.floor(logical),
       fraction = logical - i;
-    if (i < 0) return this.times[0] + logical * intervalSeconds[this.timeframe];
-    if (i >= this.times.length - 1)
+    if (i < 0) {
+      if (this.timeframe === '1M') {
+        return calendarMonthAtLogical(this.times[0], logical);
+      }
+      return this.times[0] + logical * intervalSeconds[this.timeframe];
+    }
+    if (i >= this.times.length - 1) {
+      if (this.timeframe === '1M') {
+        return calendarMonthAtLogical(this.times.at(-1)!, logical - (this.times.length - 1));
+      }
       return (
         this.times.at(-1)! + (logical - this.times.length + 1) * intervalSeconds[this.timeframe]
       );
+    }
     return this.times[i] + fraction * (this.times[i + 1] - this.times[i]);
   }
   toLogical(time: number): number {
     if (!this.times.length) return 0;
-    if (time < this.times[0]) return (time - this.times[0]) / intervalSeconds[this.timeframe];
+    if (time < this.times[0]) {
+      return this.timeframe === '1M'
+        ? calendarMonthLogical(time, this.times[0])
+        : (time - this.times[0]) / intervalSeconds[this.timeframe];
+    }
     const end = this.times.length - 1;
-    if (time >= this.times[end])
+    if (time >= this.times[end]) {
+      if (this.timeframe === '1M') {
+        return end + calendarMonthLogical(time, this.times[end]);
+      }
       return end + (time - this.times[end]) / intervalSeconds[this.timeframe];
+    }
     let lo = 0,
       hi = end;
     while (lo + 1 < hi) {

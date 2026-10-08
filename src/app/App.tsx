@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Activity,
   ArrowUpRight,
@@ -35,6 +35,7 @@ import { AppStore } from './AppStore';
 import { ChartEngine } from '../chart/ChartEngine';
 import { DemoProvider } from '../market-data/DemoProvider';
 import { YahooProvider } from '../market-data/YahooProvider';
+import { SnapshotProvider } from '../market-data/SnapshotProvider';
 import {
   normalizeSymbol,
   timeframes,
@@ -65,6 +66,7 @@ import type { CompanyFundamentals } from '../fundamentals/FundamentalsProvider';
 import type { StrategyResult } from '../strategy';
 import { errorLog, reportError } from '../errors/UserErrors';
 import { STATIC_HOSTING } from './HostingMode';
+import { legacyVolumeEnabled } from '../storage/schema';
 type Panel = 'indicators' | 'drawings' | 'financials' | 'backtest' | 'alerts' | 'settings';
 const store = new AppStore();
 const mobileMedia = window.matchMedia('(max-width:1099px)');
@@ -74,10 +76,12 @@ const subscribeMobile = (cb: () => void) => {
 };
 const providers = {
   demo: new CachedMarketDataProvider(new DemoProvider()),
+  snapshot: new CachedMarketDataProvider(new SnapshotProvider()),
   yahoo: STATIC_HOSTING ? new YahooProvider() : new CachedMarketDataProvider(new YahooProvider()),
 };
 const staticHostingText =
-  'GitHub Pages：Demo／畫線／指標可用；Yahoo 與 SEC 財報需要 backend，本頁暫不可用。';
+  'GitHub Pages：延遲快照、Demo、畫線及指標可用；即時 Yahoo 與 SEC 財報需要 backend，本頁不可用。';
+const demoDataText = 'DEMO 價格為模擬資料，並非市場行情。';
 const supportsTimeframe = (
   provider: { supportedTimeframes: readonly Timeframe[] },
   timeframe: Timeframe,
@@ -88,6 +92,14 @@ export function App() {
     symbol = state.app.activeSymbol,
     s = store.symbol(symbol),
     tf = s.preferences.timeframe;
+  const activeIndicators = useMemo(
+    () => s.indicators.filter((indicator) => indicator.scope.timeframe === tf),
+    [s.indicators, tf],
+  );
+  const activeDrawings = useMemo(
+    () => s.drawings.filter((drawing) => drawing.scope.timeframes.includes(tf)),
+    [s.drawings, tf],
+  );
   const [tool, setTool] = useState<ActiveTool>('select'),
     [selected, setSelected] = useState<string | null>(null),
     [loading, setLoading] = useState(true),
@@ -169,7 +181,7 @@ export function App() {
       sourceRef.current,
       {
         defaults: (type) => store.getSnapshot().app.drawingDefaults[type] ?? {},
-        commit: (symbol, drawings, label) => store.commitDrawings(symbol, drawings, label),
+        commit: (symbol, drawings, label, timeframe) => store.commitDrawings(symbol, drawings, label, timeframe),
         selection: setSelected,
         tool: setTool,
         view: (symbol, timeframe, range) =>
@@ -200,13 +212,13 @@ export function App() {
     setLoading(true);
     setResult(null);
     setDataError('');
-    setEventsStatus(
-      STATIC_HOSTING && state.app.provider === 'yahoo'
-        ? 'Corporate events: backend required'
-        : 'Corporate events: loading…',
-    );
+      setEventsStatus(
+        STATIC_HOSTING && state.app.provider === 'yahoo'
+          ? 'Corporate events: backend required'
+          : 'Corporate events: loading…',
+      );
     const provider = providers[state.app.provider];
-    if (!supportsTimeframe(provider, tf) && !STATIC_HOSTING) {
+    if (!supportsTimeframe(provider, tf)) {
       store.updateSymbol(symbol, (s) => ({
         ...s,
         preferences: { ...s.preferences, timeframe: '1D' },
@@ -228,14 +240,14 @@ export function App() {
           settings.drawings,
           settings.indicators,
           settings.preferences.views[tf],
-          settings.preferences.legacyVolume !== false,
+          legacyVolumeEnabled(settings.preferences, tf),
         );
         chart.sync(
           settings.drawings,
           settings.indicators,
           settings.preferences.magnet,
           'select',
-          settings.preferences.legacyVolume !== false,
+          legacyVolumeEnabled(settings.preferences, tf),
         );
         if (financialRecords.current.symbol === symbol)
           chart.setFilings(filingEvents(financialRecords.current.records));
@@ -274,9 +286,9 @@ export function App() {
       s.indicators,
       s.preferences.magnet,
       tool,
-      s.preferences.legacyVolume !== false,
+      legacyVolumeEnabled(s.preferences, tf),
     );
-  }, [s.drawings, s.indicators, s.preferences.magnet, s.preferences.legacyVolume, tool]);
+  }, [s.drawings, s.indicators, s.preferences.magnet, s.preferences.legacyVolume, s.preferences.volumeOverrides, tf, tool]);
   useEffect(() => {
     const keyboard = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -351,7 +363,7 @@ export function App() {
     engine.current?.controller?.cancel();
     store.mutateDrawing(id, action);
   };
-  const selectedDrawing = s.drawings.find((d) => d.id === selected);
+  const selectedDrawing = activeDrawings.find((d) => d.id === selected);
   const measurement =
     selectedDrawing && engine.current?.controller && selectedDrawing.type.includes('range')
       ? measurementValues(selectedDrawing, engine.current.controller.machine.projection)
@@ -388,11 +400,17 @@ export function App() {
     }
   };
   const indicatorPanel = (
-    <IndicatorPanel key={symbol} store={store} symbol={symbol} indicators={s.indicators} />
+    <IndicatorPanel
+      key={`${symbol}:${tf}`}
+      store={store}
+      symbol={symbol}
+      timeframe={tf}
+      indicators={activeIndicators}
+    />
   );
   const drawingPanel = (
     <DrawingPanel
-      drawings={s.drawings}
+      drawings={activeDrawings}
       selected={selected}
       onSelect={pickDrawing}
       onAction={drawingAction}
@@ -440,7 +458,8 @@ export function App() {
   const evaluateCurrentAlerts = useCallback(
     (data: BarResult, initialize = false) => {
       const app = store.getSnapshot().app;
-      if (app.activeSymbol !== symbol || app.provider !== state.app.provider || document.hidden)
+      const current = store.symbol(symbol);
+      if (app.activeSymbol !== symbol || app.provider !== state.app.provider || current.preferences.timeframe !== tf || document.hidden)
         return;
       const definitions = app.alerts.filter((a) => a.symbol === symbol && a.timeframe === tf);
       if (!definitions.length) return;
@@ -448,7 +467,7 @@ export function App() {
         const evaluated = evaluateAlerts(
           definitions,
           closedBars(data, tf, data.asOf ?? Date.now() / 1000),
-          store.symbol(symbol).drawings,
+          current.drawings,
           initialize,
         );
         const updates = new Map(evaluated.definitions.map((a) => [a.id, a]));
@@ -460,7 +479,7 @@ export function App() {
         setNotice(reportError('strategy', e));
       }
     },
-    [symbol, tf, state.app.provider],
+    [activeDrawings, symbol, tf, state.app.provider],
   );
   useEffect(() => {
     if (!result) return;
@@ -575,7 +594,7 @@ export function App() {
       ) : panel === 'backtest' ? (
         <BacktestPanel symbol={symbol} timeframe={tf} result={result} onResult={onStrategy} />
       ) : panel === 'alerts' ? (
-        <AlertPanel store={store} symbol={symbol} timeframe={tf} drawings={s.drawings} />
+        <AlertPanel store={store} symbol={symbol} timeframe={tf} drawings={activeDrawings} />
       ) : (
         <>
           <button className="primary-button" onClick={() => setReloadToken((n) => n + 1)}>
@@ -595,11 +614,11 @@ export function App() {
       onChange={(watchlist) => store.updateApp({ watchlist })}
     />
   );
-  const chartIndicators = [...s.indicators].sort(
+  const chartIndicators = [...activeIndicators].sort(
     (a, b) => Number(a.type === 'Volume') - Number(b.type === 'Volume'),
   );
   const showLegacyVolume =
-    s.preferences.legacyVolume !== false && !s.indicators.some((i) => i.type === 'Volume');
+    legacyVolumeEnabled(s.preferences, tf) && !activeIndicators.some((i) => i.type === 'Volume');
   return (
     <div
       ref={chartFocus.containerRef}
@@ -712,13 +731,27 @@ export function App() {
               <select
                 aria-label="Market data source"
                 value={state.app.provider}
-                onChange={(e) => store.updateApp({ provider: e.target.value as 'demo' | 'yahoo' })}
+                onChange={(e) =>
+                  store.updateApp({ provider: e.target.value as 'demo' | 'snapshot' | 'yahoo' })
+                }
               >
                 <option value="demo">DEMO · 模擬</option>
+                <option value="snapshot">Yahoo · 延遲快照</option>
                 <option value="yahoo" disabled={STATIC_HOSTING}>
-                  {STATIC_HOSTING ? 'Yahoo · 需要 backend' : 'Yahoo · Prototype'}
+                  {STATIC_HOSTING ? 'Yahoo · 需要 backend' : 'Yahoo · Backend'}
                 </option>
               </select>
+              {state.app.provider === 'demo' && (
+                <button
+                  className="primary-button"
+                  type="button"
+                  aria-label="Switch to real delayed snapshot quotes"
+                  title="Switch to Yahoo delayed snapshot quotes. Your settings stay on this device."
+                  onClick={() => store.updateApp({ provider: 'snapshot' })}
+                >
+                  切換延遲快照
+                </button>
+              )}
               <IconButton
                 className="focus-toggle"
                 label={chartFocus.isFocused ? 'Exit chart fullscreen' : 'Enter chart fullscreen'}
@@ -860,7 +893,11 @@ export function App() {
                   <b>{symbol}</b>
                   <span>· {tf} · NASDAQ / NYSE</span>
                   <span className="demo-badge">
-                    {state.app.provider === 'demo' ? 'SIMULATED' : 'PROTOTYPE'}
+                    {state.app.provider === 'demo'
+                      ? 'SIMULATED'
+                      : state.app.provider === 'snapshot'
+                        ? 'DELAYED SNAPSHOT'
+                        : 'BACKEND'}
                   </span>
                 </div>
                 <div ref={headerRef} className="ohlc-header" data-testid="ohlc-header" />
@@ -868,7 +905,7 @@ export function App() {
                   {chartIndicators.map((i) => {
                     const repeatedPeriod =
                       i.type !== 'Volume' &&
-                      s.indicators.some(
+                      activeIndicators.some(
                         (other) =>
                           other.id !== i.id && other.type !== 'Volume' && other.period === i.period,
                       );
@@ -948,8 +985,8 @@ export function App() {
                 : `${toolNames[tool]} · 每個端點：按住 → 拖曳 → 放開`}
             </span>
             <span>
-              {s.drawings.length} DRAWINGS <span className="status-divider">/</span>{' '}
-              {s.indicators.length} INDICATORS
+              {activeDrawings.length} DRAWINGS <span className="status-divider">/</span>{' '}
+              {activeIndicators.length} INDICATORS
             </span>
             {mobile && drawingControls && (
               <div className="mobile-drawing-controls" aria-label="Selected drawing controls">
@@ -958,9 +995,16 @@ export function App() {
             )}
           </div>
           <div ref={sourceRef} className="data-source" />
-          {STATIC_HOSTING && (
-            <p className="static-hosting-note" title={staticHostingText}>
-              {staticHostingText}
+          {(STATIC_HOSTING || state.app.provider === 'demo') && (
+            <p
+              className="static-hosting-note"
+              title={`${STATIC_HOSTING ? staticHostingText : ''}${
+                state.app.provider === 'demo'
+                  ? `${STATIC_HOSTING ? ' ' : ''}${demoDataText}`
+                  : ''
+              }`}
+            >
+              {STATIC_HOSTING ? staticHostingText : demoDataText}
             </p>
           )}
           <div className="events-source">
@@ -1079,8 +1123,8 @@ export function App() {
               symbol,
               timeframe: tf,
               bars: result?.bars.length ?? 0,
-              drawings: s.drawings.length,
-              indicators: s.indicators.length,
+              drawings: activeDrawings.length,
+              indicators: activeIndicators.length,
               storage: state.storageError ?? (state.saving ? 'saving' : 'saved'),
               errors,
             },

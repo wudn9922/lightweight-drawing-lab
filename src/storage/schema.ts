@@ -1,44 +1,109 @@
 import { z } from 'zod';
+
 const symbol = z.string().regex(/^[A-Z][A-Z0-9.^-]{0,14}$/);
 const finite = z.number().finite();
-const tf = z.enum(['5m', '15m', '30m', '1H', '4H', '1D', '1W']);
+export const timeframes = ['5m', '15m', '30m', '1H', '4H', '1D', '1W', '1M'] as const;
+export const timeframeSchema = z.enum(timeframes);
+export type Timeframe = z.infer<typeof timeframeSchema>;
+const tf = timeframeSchema;
 const color = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 const tool = z.enum(['trend', 'horizontal', 'ray', 'rectangle', 'fibonacci', 'channel', 'price-range', 'date-range', 'price-date-range', 'vertical']);
-export const drawingStyleSchema = z.object({
-  color, lineWidth: finite.min(1).max(4),
+const drawingStyleFields = {
+  color,
+  lineWidth: finite.min(1).max(4),
   lineStyle: z.enum(['solid', 'dashed', 'dotted']).optional(),
   opacity: finite.min(0).max(1).optional(),
   fillOpacity: finite.min(0).max(0.3).optional(),
   labelsVisible: z.boolean().optional(),
   hiddenLevels: z.array(finite.min(0).max(1)).max(32).optional(),
-});
+};
+export const drawingStyleSchema = z.object(drawingStyleFields);
 export const anchorSchema = z.object({
-  time: finite.min(1).max(32503680000), logical: finite, price: finite, timeframe: tf,
+  time: finite.min(1).max(32503680000),
+  logical: finite,
+  price: finite,
+  timeframe: tf,
 });
-export const drawingSchema = z.object({
-  id: z.string().min(1).max(100), symbol, type: tool,
+const drawingFields = {
+  id: z.string().min(1).max(100),
+  symbol,
+  type: tool,
   points: z.array(anchorSchema).min(1).max(3),
   levels: z.array(finite.min(0).max(1)).min(2).max(32).optional(),
-  locked: z.boolean(), visible: z.boolean(),
-  scope: z.object({ timeframes: z.union([z.literal('all'), z.array(tf)]) }),
+  locked: z.boolean(),
+  visible: z.boolean(),
   style: drawingStyleSchema,
-}).refine(d => d.points.length === (d.type === 'horizontal' || d.type === 'vertical' ? 1 : d.type === 'channel' ? 3 : 2), 'Invalid control point count')
-  .refine(d => d.type !== 'ray' || d.points[0].price === d.points[1].price, 'Ray must be horizontal')
-  .refine(d => d.type === 'fibonacci' ? !!d.levels && new Set(d.levels).size === d.levels.length : !d.levels, 'Invalid Fibonacci levels')
-  .refine(d => !d.style.hiddenLevels?.length || d.type === 'fibonacci' && d.style.hiddenLevels.every(l => d.levels?.includes(l)), 'Hidden levels must belong to Fibonacci levels');
+};
+type DrawingRuleShape = {
+  type: string;
+  points: { price: number }[];
+  levels?: number[];
+  style: { hiddenLevels?: number[] };
+};
+const drawingRules = <T extends z.ZodType>(schema: T) => schema
+  .refine(value => {
+    const d = value as DrawingRuleShape;
+    return d.points.length === (d.type === 'horizontal' || d.type === 'vertical' ? 1 : d.type === 'channel' ? 3 : 2);
+  }, 'Invalid control point count')
+  .refine(value => {
+    const d = value as DrawingRuleShape;
+    return d.type !== 'ray' || d.points[0].price === d.points[1].price;
+  }, 'Ray must be horizontal')
+  .refine(value => {
+    const d = value as DrawingRuleShape;
+    return d.type === 'fibonacci' ? !!d.levels && new Set(d.levels).size === d.levels.length : !d.levels;
+  }, 'Invalid Fibonacci levels')
+  .refine(value => {
+    const d = value as DrawingRuleShape;
+    return !d.style.hiddenLevels?.length || d.type === 'fibonacci' && d.style.hiddenLevels.every(level => d.levels?.includes(level));
+  }, 'Hidden levels must belong to Fibonacci levels');
+
+// V3 records have one timeframe owner. Legacy readers use legacyDrawingSchema, then migrate
+// global or multi-timeframe records before validating them against this schema.
+export const drawingSchema = drawingRules(z.object({
+  ...drawingFields,
+  scope: z.object({ timeframes: z.array(tf).length(1) }),
+}));
+const legacyDrawingSchema = drawingRules(z.object({
+  ...drawingFields,
+  scope: z.object({ timeframes: z.union([z.literal('all'), z.array(tf)]) }),
+}));
 export const indicatorSchema = z.object({
-  id: z.string().min(1).max(100), symbol, type: z.enum(['SMA', 'EMA', 'Volume']),
-  period: z.number().int().min(1).max(5000), source: z.enum(['open', 'high', 'low', 'close']),
-  visible: z.boolean(), locked: z.boolean(),
-  lineWidth: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]), color,
-  scope: z.object({ timeframe: tf.optional() }),
+  id: z.string().min(1).max(100),
+  symbol,
+  type: z.enum(['SMA', 'EMA', 'Volume']),
+  period: z.number().int().min(1).max(5000),
+  source: z.enum(['open', 'high', 'low', 'close']),
+  visible: z.boolean(),
+  locked: z.boolean(),
+  lineWidth: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
+  color,
+  scope: z.object({ timeframe: tf }),
 });
+const legacyIndicatorSchema = indicatorSchema.extend({ scope: z.object({ timeframe: tf.optional() }) });
 const range = z.object({ from: finite, to: finite, barCount: z.number().int().positive().optional() })
   .refine(v => v.to > v.from && v.to - v.from <= 100000);
-export const preferencesSchema = z.object({ timeframe: tf, views: z.record(z.string(), range), magnet: z.boolean(), legacyVolume: z.boolean().optional() });
-export const symbolStateSchema = z.object({
-  symbol, drawings: z.array(drawingSchema).max(10000), indicators: z.array(indicatorSchema).max(100), preferences: preferencesSchema,
-}).superRefine((s, c) => {
+const ownershipMigrationSchema = z.object({
+  fromVersion: z.union([z.literal(1), z.literal(2)]),
+  indicatorHome: tf,
+  drawingRule: z.literal('first-anchor'),
+});
+export const preferencesSchema = z.object({
+  timeframe: tf,
+  views: z.record(z.string(), range),
+  magnet: z.boolean(),
+  legacyVolume: z.boolean().optional(),
+  volumeOverrides: z.partialRecord(tf, z.boolean()).optional(),
+  ownershipMigration: ownershipMigrationSchema.optional(),
+});
+export function legacyVolumeEnabled(
+  preferences: Pick<z.infer<typeof preferencesSchema>, 'legacyVolume' | 'volumeOverrides'>,
+  timeframe: Timeframe,
+) {
+  return preferences.volumeOverrides?.[timeframe] ?? preferences.legacyVolume !== false;
+}
+
+function stateRelations<T extends { symbol: string; drawings: { symbol: string; id: string }[]; indicators: { symbol: string; id: string }[] }>(s: T, c: z.RefinementCtx) {
   for (const list of [s.drawings, s.indicators]) {
     const ids = new Set<string>();
     for (const item of list) {
@@ -46,50 +111,193 @@ export const symbolStateSchema = z.object({
       ids.add(item.id);
     }
   }
+}
+export const symbolStateSchema = z.object({
+  symbol,
+  drawings: z.array(drawingSchema).max(10000),
+  indicators: z.array(indicatorSchema).max(800),
+  preferences: preferencesSchema,
+}).superRefine((s, c) => {
+  stateRelations(s, c);
+  const counts = new Map<Timeframe, number>();
+  for (const indicator of s.indicators) {
+    const timeframe = indicator.scope.timeframe;
+    const count = (counts.get(timeframe) ?? 0) + 1;
+    counts.set(timeframe, count);
+    if (count > 100) c.addIssue({ code: 'custom', message: `More than 100 indicators in ${timeframe}` });
+  }
 });
+const legacySymbolStateSchema = z.object({
+  symbol,
+  drawings: z.array(legacyDrawingSchema).max(10000),
+  indicators: z.array(legacyIndicatorSchema).max(100),
+  preferences: preferencesSchema,
+}).superRefine(stateRelations);
+
 export const alertSchema = z.object({
-  id: z.string().min(1).max(100), symbol, timeframe: tf,
-  kind: z.enum(['level', 'ma', 'drawing']), direction: z.enum(['above', 'below', 'cross']),
-  level: finite.optional(), maType: z.enum(['SMA', 'EMA']).optional(), period: z.number().int().min(1).max(5000).optional(), drawingId: z.string().min(1).max(100).optional(),
-  enabled: z.boolean(), invalidReason: z.string().max(300).nullable().default(null),
-  lastTriggered: finite.nullable().default(null), lastEvaluated: finite.nullable().default(null),
-  baseline: finite.nullable().default(null), referencePrice: finite.nullable().default(null),
+  id: z.string().min(1).max(100),
+  symbol,
+  timeframe: tf,
+  kind: z.enum(['level', 'ma', 'drawing']),
+  direction: z.enum(['above', 'below', 'cross']),
+  level: finite.optional(),
+  maType: z.enum(['SMA', 'EMA']).optional(),
+  period: z.number().int().min(1).max(5000).optional(),
+  drawingId: z.string().min(1).max(100).optional(),
+  enabled: z.boolean(),
+  invalidReason: z.string().max(300).nullable().default(null),
+  lastTriggered: finite.nullable().default(null),
+  lastEvaluated: finite.nullable().default(null),
+  baseline: finite.nullable().default(null),
+  referencePrice: finite.nullable().default(null),
 }).refine(a => a.kind === 'level' ? a.level !== undefined : a.kind === 'ma' ? !!a.maType && !!a.period : !!a.drawingId, 'Missing alert condition');
 export type AlertDefinition = z.infer<typeof alertSchema>;
+const presetFields = {
+  id: z.string().min(1).max(100),
+  name: z.string().trim().min(1).max(80),
+};
 const presetSchema = z.object({
-  id: z.string().min(1).max(100), name: z.string().trim().min(1).max(80),
+  ...presetFields,
   indicators: z.array(indicatorSchema.omit({ id: true, symbol: true })).max(100),
 });
-export const appSchema = z.object({
-  watchlist: z.array(symbol).max(1000), activeSymbol: symbol, provider: z.enum(['demo', 'yahoo']),
+const legacyPresetSchema = z.object({
+  ...presetFields,
+  indicators: z.array(legacyIndicatorSchema.omit({ id: true, symbol: true })).max(100),
+});
+const workspaceSchema = z.object({
+  rightOpen: z.boolean().default(true),
+  rightTab: z.enum(['indicators', 'drawings', 'financials', 'backtest', 'alerts', 'settings']).default('indicators'),
+  debug: z.boolean().default(false),
+});
+const appFields = {
+  watchlist: z.array(symbol).max(1000),
+  activeSymbol: symbol,
+  provider: z.enum(['demo', 'yahoo', 'snapshot']),
   recentSymbols: z.array(symbol).max(20).default([]),
   drawingDefaults: z.partialRecord(tool, drawingStyleSchema).default({}),
-  indicatorPresets: z.array(presetSchema).max(100).default([]),
   alerts: z.array(alertSchema).max(1000).default([]),
-  workspace: z.object({
-    rightOpen: z.boolean().default(true), rightTab: z.enum(['indicators', 'drawings', 'financials', 'backtest', 'alerts', 'settings']).default('indicators'), debug: z.boolean().default(false),
-  }).default({ rightOpen: true, rightTab: 'indicators', debug: false }),
-}).superRefine((a,c) => {
-  if (new Set(a.watchlist).size !== a.watchlist.length) c.addIssue({code:'custom',message:'Duplicate watchlist symbol'});
-  for (const list of [a.alerts,a.indicatorPresets]) if (new Set(list.map(x=>x.id)).size !== list.length) c.addIssue({code:'custom',message:'Duplicate workspace id'});
-});
-const envelope = { exportedAt: z.string(), app: appSchema, symbols: z.array(symbolStateSchema).max(1000) };
-export const exportSchema = z.object({ version: z.literal(2), ...envelope })
-  .superRefine((d,c) => {
-    if (new Set(d.symbols.map(s => s.symbol)).size !== d.symbols.length) c.addIssue({code:'custom',message:'Duplicate symbol state'});
-    for(const a of d.app.alerts) if(a.kind==='drawing' && a.enabled && !d.symbols.some(s=>s.symbol===a.symbol && s.drawings.some(x=>x.id===a.drawingId && (x.type==='horizontal'||x.type==='ray')))) c.addIssue({code:'custom',message:'Orphan drawing alert'});
-  });
-// Legacy envelopes are parsed by the same validated domain model, then upgraded.
-const legacyExportSchema = z.object({ version: z.literal(1), ...envelope });
+  workspace: workspaceSchema.default({ rightOpen: true, rightTab: 'indicators', debug: false }),
+};
+function appRelations(a: { watchlist: string[]; alerts: { id: string }[]; indicatorPresets: { id: string }[] }, c: z.RefinementCtx) {
+  if (new Set(a.watchlist).size !== a.watchlist.length) c.addIssue({ code: 'custom', message: 'Duplicate watchlist symbol' });
+  for (const list of [a.alerts, a.indicatorPresets]) {
+    if (new Set(list.map(x => x.id)).size !== list.length) c.addIssue({ code: 'custom', message: 'Duplicate workspace id' });
+  }
+}
+export const appSchema = z.object({
+  ...appFields,
+  indicatorPresets: z.array(presetSchema).max(100).default([]),
+}).superRefine(appRelations);
+const legacyAppSchema = z.object({
+  ...appFields,
+  indicatorPresets: z.array(legacyPresetSchema).max(100).default([]),
+}).superRefine(appRelations);
 export type SymbolState = z.infer<typeof symbolStateSchema>;
 export type AppSettings = z.infer<typeof appSchema>;
 export type SettingsExport = z.infer<typeof exportSchema>;
-export function emptySymbol(symbol: string): SymbolState {
-  return { symbol, drawings: [], indicators: [], preferences: { timeframe: '1D', views: {}, magnet: false } };
+type LegacySymbolState = z.infer<typeof legacySymbolStateSchema>;
+type LegacyAppSettings = z.infer<typeof legacyAppSchema>;
+
+export function emptySymbol(symbolName: string): SymbolState {
+  return { symbol: symbolName, drawings: [], indicators: [], preferences: { timeframe: '1D', views: {}, magnet: false } };
 }
+
+const envelope = { exportedAt: z.string(), app: appSchema, symbols: z.array(symbolStateSchema).max(1000) };
+function validDrawingAlert(d: SymbolState['drawings'][number] | undefined, timeframe: Timeframe) {
+  return !!d && (d.type === 'horizontal' || d.type === 'ray') && d.scope.timeframes.includes(timeframe);
+}
+function checkExportRelations(d: { app: AppSettings; symbols: SymbolState[] }, c: z.RefinementCtx) {
+  if (new Set(d.symbols.map(s => s.symbol)).size !== d.symbols.length) c.addIssue({ code: 'custom', message: 'Duplicate symbol state' });
+  for (const alert of d.app.alerts) {
+    if (alert.kind !== 'drawing' || !alert.enabled) continue;
+    const drawing = d.symbols.find(s => s.symbol === alert.symbol)?.drawings.find(x => x.id === alert.drawingId);
+    if (!validDrawingAlert(drawing, alert.timeframe)) c.addIssue({ code: 'custom', message: 'Orphan or out-of-scope drawing alert' });
+  }
+}
+const exportEnvelope = z.object({ version: z.literal(3), ...envelope });
+export const exportSchema = exportEnvelope.superRefine(checkExportRelations);
+
+const legacyEnvelopeFields = {
+  exportedAt: z.string(),
+  app: legacyAppSchema,
+  symbols: z.array(legacySymbolStateSchema).max(1000),
+};
+const legacyV1Schema = z.object({ version: z.literal(1), ...legacyEnvelopeFields });
+const legacyV2Schema = z.object({ version: z.literal(2), ...legacyEnvelopeFields });
+
+function legacyDrawingInTimeframe(drawing: LegacySymbolState['drawings'][number], timeframe: Timeframe) {
+  return drawing.scope.timeframes === 'all' || drawing.scope.timeframes.includes(timeframe);
+}
+function migrateSymbolState(state: LegacySymbolState, version: 1 | 2): SymbolState {
+  const { preferences } = state;
+  const volumeOverrides = preferences.legacyVolume === false
+    ? Object.fromEntries(timeframes.map(timeframe => [timeframe, false])) as Record<Timeframe, boolean>
+    : preferences.volumeOverrides;
+  return symbolStateSchema.parse({
+    ...state,
+    drawings: state.drawings.map(drawing => {
+      const scopes = drawing.scope.timeframes;
+      if (Array.isArray(scopes) && scopes.length === 1) return drawing;
+      return { ...drawing, scope: { timeframes: [drawing.points[0].timeframe] } };
+    }),
+    indicators: state.indicators.map(indicator => ({
+      ...indicator,
+      scope: { timeframe: indicator.scope.timeframe ?? preferences.timeframe },
+    })),
+    preferences: {
+      ...preferences,
+      ...(volumeOverrides ? { volumeOverrides } : {}),
+      ownershipMigration: {
+        fromVersion: version,
+        indicatorHome: preferences.timeframe,
+        drawingRule: 'first-anchor',
+      },
+    },
+  });
+}
+function migrateLegacyApp(app: LegacyAppSettings, symbols: SymbolState[]): AppSettings {
+  const indicatorHome = symbols.find(state => state.symbol === app.activeSymbol)?.preferences.timeframe ?? '1D';
+  return appSchema.parse({
+    ...app,
+    indicatorPresets: app.indicatorPresets.map(preset => ({
+      ...preset,
+      indicators: preset.indicators.map(indicator => ({
+        ...indicator,
+        scope: { timeframe: indicator.scope.timeframe ?? indicatorHome },
+      })),
+    })),
+  });
+}
+function migrateLegacyAlerts(app: AppSettings, symbols: SymbolState[]): AppSettings {
+  const alerts = app.alerts.map(alert => {
+    if (alert.kind !== 'drawing' || !alert.enabled) return alert;
+    const referenced = symbols.find(state => state.symbol === alert.symbol)?.drawings.find(d => d.id === alert.drawingId);
+    if (!referenced || (referenced.type !== 'horizontal' && referenced.type !== 'ray')) {
+      return { ...alert, enabled: false, invalidReason: 'Referenced drawing was deleted', baseline: null };
+    }
+    if (!legacyDrawingInTimeframe(referenced, alert.timeframe)) {
+      return { ...alert, enabled: false, invalidReason: 'Referenced drawing is scoped to another timeframe', baseline: null };
+    }
+    return alert;
+  });
+  return appSchema.parse({ ...app, alerts });
+}
+function upgradeLegacyEnvelope(parsed: { exportedAt: string; app: LegacyAppSettings; symbols: LegacySymbolState[] }, version: 1 | 2): SettingsExport {
+  const symbols = parsed.symbols.map(state => migrateSymbolState(state, version));
+  const app = migrateLegacyAlerts(migrateLegacyApp(parsed.app, symbols), symbols);
+  return exportSchema.parse({ version: 3, exportedAt: parsed.exportedAt, app, symbols });
+}
+
+export function upgradeLegacySettings(data: unknown, version: 1 | 2): SettingsExport {
+  const record = z.record(z.string(), z.unknown()).parse(data);
+  const parsed = (version === 1 ? legacyV1Schema : legacyV2Schema).parse({ ...record, version });
+  return upgradeLegacyEnvelope(parsed, version);
+}
+
 export function parseSettings(json: string): SettingsExport {
   if (json.length > 10_000_000) throw new Error('Import exceeds 10 MB');
   const data: unknown = JSON.parse(json);
-  const version = z.object({version:z.number()}).parse(data).version;
-  return exportSchema.parse(version === 1 ? { ...legacyExportSchema.parse(data), version: 2 } : data);
+  const version = z.object({ version: z.number().int() }).parse(data).version;
+  if (version === 1 || version === 2) return upgradeLegacySettings(data, version);
+  return exportSchema.parse(data);
 }

@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { nextSessionTime } from '../src/chart/TimeMapper';
+import { nextSessionTime, TimeMapper } from '../src/chart/TimeMapper';
 import { barEndTime } from '../src/market-data/MarketTiming';
 import { DemoProvider, DEMO_AS_OF } from '../src/market-data/DemoProvider';
 import { normalizeYahooEvents, normalizeYahooResponse } from '../src/market-data/YahooNormalizer';
@@ -44,13 +44,49 @@ it('advances daily and weekly whitespace on weekdays without inventing holidays'
   );
 });
 
-it('provides 2,500 deterministic regular-session Demo bars for all seven V1 timeframes', async () => {
+it('advances calendar monthly whitespace and round trips leap, year rollover and future times', () => {
+  expect(nextSessionTime(Date.parse('2024-02-01T00:00:00Z') / 1000, '1M')).toBe(
+    Date.parse('2024-03-01T00:00:00Z') / 1000,
+  );
+  expect(nextSessionTime(Date.parse('2024-12-01T00:00:00Z') / 1000, '1M')).toBe(
+    Date.parse('2025-01-01T00:00:00Z') / 1000,
+  );
+
+  const march = Date.parse('2024-03-01T00:00:00Z') / 1000;
+  const april = Date.parse('2024-04-01T00:00:00Z') / 1000;
+  const monthMidpoint = Date.parse('2024-03-16T12:00:00Z') / 1000;
+  const mapper = new TimeMapper([bar(march), bar(april)], '1M', 1);
+  expect(mapper.toTime(0.5)).toBe(monthMidpoint);
+  expect(mapper.toLogical(monthMidpoint)).toBe(0.5);
+
+  const februaryMidpoint = Date.parse('2024-02-15T12:00:00Z') / 1000;
+  expect(mapper.toTime(-0.5)).toBe(februaryMidpoint);
+  expect(mapper.toLogical(februaryMidpoint)).toBe(-0.5);
+
+  const june = Date.parse('2024-06-01T00:00:00Z') / 1000;
+  expect(mapper.toTime(3)).toBe(june);
+  expect(mapper.toLogical(june)).toBe(3);
+});
+
+it('closes monthly bars only at next month Eastern midnight across DST', () => {
+  const february = bar(Date.parse('2024-02-01T00:00:00Z') / 1000);
+  const februaryClose = Date.parse('2024-03-01T05:00:00Z') / 1000;
+  expect(barEndTime(february.time, '1M')).toBe(februaryClose);
+  expect(closedBars({ bars: [february] }, '1M', Date.parse('2024-02-20T12:00:00Z') / 1000)).toEqual([]);
+  expect(closedBars({ bars: [february] }, '1M', februaryClose - 1)).toEqual([]);
+  expect(closedBars({ bars: [february] }, '1M', februaryClose)).toEqual([february]);
+
+  const march = bar(Date.parse('2024-03-01T00:00:00Z') / 1000);
+  expect(barEndTime(march.time, '1M')).toBe(Date.parse('2024-04-01T04:00:00Z') / 1000);
+});
+
+it('provides deterministic regular-session Demo bars for all eight V1 timeframes', async () => {
   const demo = new DemoProvider();
-  expect(demo.supportedTimeframes).toEqual(['5m', '15m', '30m', '1H', '4H', '1D', '1W']);
+  expect(demo.supportedTimeframes).toEqual(['5m', '15m', '30m', '1H', '4H', '1D', '1W', '1M']);
   for (const timeframe of demo.supportedTimeframes) {
     const first = await demo.getBars('AAPL', timeframe);
     const second = await demo.getBars('AAPL', timeframe);
-    expect(first.bars).toHaveLength(2500);
+    expect(first.bars).toHaveLength(timeframe === '1M' ? 600 : 2500);
     expect(first.bars).toEqual(second.bars);
     expect(first).toMatchObject({ dataState: 'simulated', cacheStatus: 'fresh' });
     expect(first.source).toContain('simulated');
@@ -58,6 +94,22 @@ it('provides 2,500 deterministic regular-session Demo bars for all seven V1 time
     expect(barEndTime(first.bars.at(-1)!.time, timeframe)).toBeLessThan(DEMO_AS_OF);
   }
 }, 30000);
+
+it('builds 600 positive deterministic monthly Demo bars with completed history since 1976', async () => {
+  const demo = new DemoProvider();
+  const first = await demo.getBars('AAPL', '1M');
+  const second = await demo.getBars('AAPL', '1M');
+  expect(first.bars).toHaveLength(600);
+  expect(first.bars).toEqual(second.bars);
+  expect(first.bars[0].time).toBe(Date.parse('1976-10-01T00:00:00Z') / 1000);
+  expect(first.bars.at(-1)!.time).toBe(Date.parse('2026-09-01T00:00:00Z') / 1000);
+  expect(first.bars.every((item) => item.time > 0 && barEndTime(item.time, '1M') <= DEMO_AS_OF)).toBe(
+    true,
+  );
+  expect(first.bars.every((item) => new Date(item.time * 1000).getUTCDate() === 1)).toBe(true);
+  expect(first).toMatchObject({ dataState: 'simulated', cacheStatus: 'fresh' });
+  expect(first.source).toContain('simulated');
+});
 
 it('filters Demo bars to inclusive range bounds and errors when the range contains no bars', async () => {
   const demo = new DemoProvider();
@@ -76,7 +128,7 @@ it('filters Demo bars to inclusive range bounds and errors when the range contai
 
 it('advertises only direct Yahoo intervals and keeps 4H unavailable', () => {
   const yahoo = new YahooProvider();
-  expect(yahoo.supportedTimeframes).toEqual(['5m', '15m', '30m', '1H', '1D', '1W']);
+  expect(yahoo.supportedTimeframes).toEqual(['5m', '15m', '30m', '1H', '1D', '1W', '1M']);
   expect(yahooIntervals).toEqual({
     '5m': { interval: '5m', range: '1mo' },
     '15m': { interval: '15m', range: '1mo' },
@@ -84,7 +136,9 @@ it('advertises only direct Yahoo intervals and keeps 4H unavailable', () => {
     '1H': { interval: '60m', range: '3mo' },
     '1D': { interval: '1d', range: '5y' },
     '1W': { interval: '1wk', range: '10y' },
+    '1M': { interval: '1mo', range: '10y' },
   });
+  expect(isYahooTimeframe('1M')).toBe(true);
   expect(isYahooTimeframe('4H')).toBe(false);
 });
 

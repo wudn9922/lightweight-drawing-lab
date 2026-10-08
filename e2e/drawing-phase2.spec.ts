@@ -114,6 +114,9 @@ for (const [name, kind] of [
       await page.getByRole('button', { name: `Timeframe ${tf}`, exact: true }).click();
       await ready(page);
       expect((await read(page)).drawings[0]).toEqual(locked);
+      await expect(page.locator('.chart-status')).toContainText(
+        tf === '1D' ? '1 DRAWINGS' : '0 DRAWINGS',
+      );
     }
     for (const symbol of ['NVDA', 'AAPL']) {
       await page.getByLabel('Symbol search', { exact: true }).fill(symbol);

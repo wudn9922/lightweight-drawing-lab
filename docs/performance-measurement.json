@@ -5,6 +5,6 @@
   "drawings": 100,
   "rafSamples": 119,
   "rafGapMedianMs": 16.699999999999818,
-  "rafGapP95Ms": 16.799999999999727,
+  "rafGapP95Ms": 16.700000000000273,
   "runtimeErrors": []
 }

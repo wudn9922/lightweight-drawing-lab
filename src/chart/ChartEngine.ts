@@ -39,7 +39,7 @@ const compactVolume = new Intl.NumberFormat('en-US', {
 });
 export interface ChartCallbacks {
   defaults?: (type: ToolKind) => Partial<DrawingStyle>;
-  commit: (symbol: string, drawings: Drawing[], label: string) => void;
+  commit: (symbol: string, drawings: Drawing[], label: string, timeframe: Timeframe) => void;
   selection: (id: string | null) => void;
   tool: (t: ActiveTool) => void;
   view: (symbol: string, timeframe: Timeframe, range: ViewRange) => void;
@@ -229,7 +229,7 @@ export class ChartEngine {
       volumeAverageData.map((point) => [point.time, point.value]),
     );
     this.chart.applyOptions({
-      timeScale: { timeVisible: timeframe !== '1D' && timeframe !== '1W' },
+      timeScale: { timeVisible: timeframe !== '1D' && timeframe !== '1W' && timeframe !== '1M' },
     });
     const visible = drawings.filter((d) => drawingVisible(d, symbol, timeframe));
     const machine = new DrawingStateMachine(
@@ -240,7 +240,7 @@ export class ChartEngine {
       (next, label) => {
         // Preserve any future timeframe-scoped objects not visible in this view.
         const hidden = this.allDrawings.filter((d) => !drawingVisible(d, symbol, timeframe));
-        this.callbacks.commit(symbol, [...hidden, ...next], label);
+        this.callbacks.commit(symbol, [...hidden, ...next], label, timeframe);
       },
       this.callbacks.selection,
       this.callbacks.defaults,
@@ -259,7 +259,8 @@ export class ChartEngine {
     this.chart.timeScale().setVisibleLogicalRange(restoreViewRange(range, result.bars.length));
     this.ohlcBar = result.bars.at(-1) ?? null;
     this.renderHeader();
-    this.sourceLabel.textContent = `${result.source} · ${result.session.toUpperCase()} · ${result.dataState ?? (result.delayed ? 'DELAYED' : 'SIMULATED')} · ${result.cacheStatus ?? 'fresh'} · last bar ${new Date(result.bars.at(-1)!.time * 1000).toLocaleString()}`;
+    this.sourceLabel.textContent = `${result.source} · ${result.session.toUpperCase()} · ${result.dataState ?? (result.delayed ? 'DELAYED' : 'SIMULATED')} · ${result.cacheStatus ?? 'fresh'} · ${result.priceBasis ?? 'unknown price basis'} · as-of ${result.asOf ? new Date(result.asOf * 1000).toLocaleString() : 'N/A'} · last bar ${new Date(result.bars.at(-1)!.time * 1000).toLocaleString()}`;
+    this.sourceLabel.title = this.sourceLabel.textContent;
   }
   sync(
     drawings: Drawing[],
@@ -284,7 +285,7 @@ export class ChartEngine {
     this.renderHeader();
   }
   private syncLegacyVolumeVisibility(instances: readonly IndicatorInstance[], enabled: boolean) {
-    const hasExplicitVolume = instances.some((i) => i.type === 'Volume');
+    const hasExplicitVolume = instances.some((i) => i.type === 'Volume' && i.scope.timeframe === this.timeframe);
     this.legacyVolumeVisible = enabled && !hasExplicitVolume;
     this.volume.applyOptions({ visible: this.legacyVolumeVisible });
     this.volumeAverage.applyOptions({ visible: this.legacyVolumeVisible });
@@ -312,6 +313,15 @@ export class ChartEngine {
     this.refreshMarkers();
   }
   private eventBar(time: number): number | null {
+    if (this.timeframe === '1M') {
+      const eventMonth = new Date(time * 1000);
+      const key = eventMonth.getUTCFullYear() * 12 + eventMonth.getUTCMonth();
+      const bar = this.bars.find(b => {
+        const date = new Date(b.time * 1000);
+        return date.getUTCFullYear() * 12 + date.getUTCMonth() === key;
+      });
+      return bar?.time ?? null;
+    }
     if (
       !this.bars.length ||
       time < this.bars[0].time - 86400 ||

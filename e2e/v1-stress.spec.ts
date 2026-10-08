@@ -177,6 +177,14 @@ test('V1 stress: 2,500 Demo bars, eight mixed averages and 100 mixed drawings ke
       },
     ],
   };
+  const migratedDrawings: Drawing[] = drawings.map((drawing) => ({
+    ...drawing,
+    scope: { timeframes: [drawing.points[0].timeframe] },
+  }));
+  const migratedIndicators: IndicatorInstance[] = indicators.map((indicator) => ({
+    ...indicator,
+    scope: { timeframe: '1D' },
+  }));
 
   await page.getByLabel('Settings file', { exact: true }).setInputFiles({
     name: 'v1-mixed-stress.json',
@@ -201,8 +209,8 @@ test('V1 stress: 2,500 Demo bars, eight mixed averages and 100 mixed drawings ke
     'vertical',
   ];
   const stored = (await readSymbol(page))!;
-  expect(stored.drawings).toEqual(drawings);
-  expect(stored.indicators).toEqual(indicators);
+  expect(stored.drawings).toEqual(migratedDrawings);
+  expect(stored.indicators).toEqual(migratedIndicators);
   expect(stored.drawings.filter((drawing) => drawing.locked)).toHaveLength(50);
   expect(
     Object.fromEntries(
@@ -236,7 +244,7 @@ test('V1 stress: 2,500 Demo bars, eight mixed averages and 100 mixed drawings ke
   await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
   await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
   await expect(page.locator('.chart-loading')).toHaveCount(0);
-  expect((await readSymbol(page))!.drawings).toEqual(drawings);
+  expect((await readSymbol(page))!.drawings).toEqual(migratedDrawings);
 
   // Exercise placement and endpoint editing while the full mixed workload is present.
   const editingPlot = (await page.getByTestId('chart').locator('canvas').first().boundingBox())!;
@@ -264,7 +272,7 @@ test('V1 stress: 2,500 Demo bars, eight mixed averages and 100 mixed drawings ke
   await expect
     .poll(async () => (await readSymbol(page))?.drawings[100]?.points[0].price)
     .not.toBe(editable.points[0].price);
-  expect((await readSymbol(page))!.drawings.slice(0, 100)).toEqual(drawings);
+  expect((await readSymbol(page))!.drawings.slice(0, 100)).toEqual(migratedDrawings);
   await page.getByRole('button', { name: 'Delete selected drawing', exact: true }).click();
   await expect.poll(async () => (await readSymbol(page))?.drawings.length).toBe(100);
 

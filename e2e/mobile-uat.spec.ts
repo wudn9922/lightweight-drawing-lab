@@ -264,8 +264,23 @@ test('fullscreen exit and crosshair numeric readouts use current candle then lat
   ).toBe(false);
   await page.getByRole('button', { name: 'Timeframe 1H', exact: true }).click();
   await loaded(page);
+  await expect(page.locator('.indicator-chip')).toHaveCount(0);
+  expect((await saved(page)).indicators.map((indicator) => indicator.scope.timeframe)).toEqual([
+    '1D',
+  ]);
+  await addMA(page, 24);
   const hourly = await new DemoProvider().getBars('AAPL', '1H');
-  await expect(readout).toHaveText(mean(hourly.bars.slice(-24).map((b) => b.close)).toFixed(2));
+  const hourlyLatest = mean(hourly.bars.slice(-24).map((b) => b.close)).toFixed(2);
+  await expect(page.locator('.indicator-chip')).toHaveCount(1);
+  await expect(readout).toHaveText(hourlyLatest);
+  expect((await saved(page)).indicators.map((indicator) => indicator.scope.timeframe)).toEqual([
+    '1D',
+    '1H',
+  ]);
+  await page.getByRole('button', { name: 'Timeframe 1D', exact: true }).click();
+  await loaded(page);
+  await expect(page.locator('.indicator-chip')).toHaveCount(1);
+  await expect(readout).toHaveText(latest);
 });
 
 test('denied browser fullscreen falls back to chart focus without losing indicator controls', async ({

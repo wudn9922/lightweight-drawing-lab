@@ -5,7 +5,7 @@ it('Demo provides deterministic regular-session OHLCV for all exposed timeframes
   const p = new DemoProvider();
   for (const tf of p.supportedTimeframes) {
     const { bars } = await p.getBars('AAPL', tf);
-    expect(bars).toHaveLength(2500);
+    expect(bars).toHaveLength(tf === '1M' ? 600 : 2500);
     expect(bars.at(-1)!.time).toBeLessThan(DEMO_AS_OF);
     for (let i = 0; i < bars.length; i++) {
       const b = bars[i];

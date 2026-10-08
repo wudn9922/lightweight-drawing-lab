@@ -478,7 +478,7 @@ test('V1 research journey keeps per-symbol indicators, drawings, alerts, financi
   await closePanel(page);
 
   const baseline = await readWorkspace(page);
-  const invalid = JSON.stringify({ version: 3, app: baseline.app, symbols: baseline.symbols });
+  const invalid = JSON.stringify({ version: 4, app: baseline.app, symbols: baseline.symbols });
   await page.getByLabel('Settings file', { exact: true }).setInputFiles({
     name: 'invalid-settings.json',
     mimeType: 'application/json',
@@ -498,7 +498,7 @@ test('V1 research journey keeps per-symbol indicators, drawings, alerts, financi
     app: AppSettings;
     symbols: SymbolState[];
   };
-  expect(exported.version).toBe(2);
+  expect(exported.version).toBe(3);
   expect(exported.app.indicatorPresets.map((preset) => preset.name)).toEqual([
     'AAPL mix',
     'NVDA mix',

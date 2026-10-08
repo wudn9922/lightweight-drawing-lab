@@ -1,0 +1,38 @@
+{
+  "SMCI": {
+    "url": "https://query2.finance.yahoo.com/v8/finance/chart/SMCI?interval=1d&range=5y&events=div%2Csplits&includePrePost=false",
+    "capturedAt": "2026-10-07T13:02:05.269715+00:00",
+    "sha256": "b1796546e9dba02e0d57f98112ee319590eb5c09aa5f5cf1353c8722aa7da0ce",
+    "note": "Actual provider response filtered to split-window and latest bars. OHLC preserved. Quote values are as-of, not guaranteed live."
+  },
+  "NFLX": {
+    "url": "https://query2.finance.yahoo.com/v8/finance/chart/NFLX?interval=1d&range=5y&events=div%2Csplits&includePrePost=false",
+    "capturedAt": "2026-10-07T13:02:05.271801+00:00",
+    "sha256": "262feb2eb9b8506ddcd71ae434a533014dba54021145c18927d5f658cfcec579",
+    "note": "Actual provider response filtered to split-window and latest bars. OHLC preserved. Quote values are as-of, not guaranteed live."
+  },
+  "SMCI-1mo": {
+    "url": "https://query2.finance.yahoo.com/v8/finance/chart/SMCI?interval=1mo&range=10y&events=div%2Csplits&includePrePost=false",
+    "capturedAt": "2026-10-07T13:17:38.361634+00:00",
+    "sha256": "52fa0c1ae65f907aad1974d17b8a1ed2925e98ac7da34db47a525509bab40f16",
+    "note": "Actual native period response tail including appended latest-session row; original OHLCV preserved."
+  },
+  "SMCI-1wk": {
+    "url": "https://query2.finance.yahoo.com/v8/finance/chart/SMCI?interval=1wk&range=10y&events=div%2Csplits&includePrePost=false",
+    "capturedAt": "2026-10-07T13:17:38.362620+00:00",
+    "sha256": "f4b5c8752ffd0ca80e882cfcc03ca6c19610b239815a617bd0c2767e9325d43f",
+    "note": "Actual native period response tail including appended latest-session row; original OHLCV preserved."
+  },
+  "NFLX-1mo": {
+    "url": "https://query2.finance.yahoo.com/v8/finance/chart/NFLX?interval=1mo&range=10y&events=div%2Csplits&includePrePost=false",
+    "capturedAt": "2026-10-07T13:17:38.362990+00:00",
+    "sha256": "565ae8510d23a19e05c3b92e92f003e19635d39a81375320ce0e66c0b6d5fa33",
+    "note": "Actual native period response tail including appended latest-session row; original OHLCV preserved."
+  },
+  "NFLX-1wk": {
+    "url": "https://query2.finance.yahoo.com/v8/finance/chart/NFLX?interval=1wk&range=10y&events=div%2Csplits&includePrePost=false",
+    "capturedAt": "2026-10-07T13:17:38.363916+00:00",
+    "sha256": "cbe9f6cc41f3d6963adc4a834d762f4491fd831d9c12642393b76167fee0115d",
+    "note": "Actual native period response tail including appended latest-session row; original OHLCV preserved."
+  }
+}

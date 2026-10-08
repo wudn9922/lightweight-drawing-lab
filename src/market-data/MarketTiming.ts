@@ -44,6 +44,17 @@ function easternEpoch(
 
 /** Conservative scheduled end of one regular-session bar; holidays are unknown. */
 export function barEndTime(time: number, timeframe: Timeframe): number {
+  if (timeframe === '1M') {
+    const date = new Date(time * 1000);
+    const nextMonth = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1));
+    return easternEpoch(
+      nextMonth.getUTCFullYear(),
+      nextMonth.getUTCMonth() + 1,
+      1,
+      0,
+      0,
+    );
+  }
   if (timeframe === '1D' || timeframe === '1W') {
     const date = new Date(time * 1000);
     const year = date.getUTCFullYear();

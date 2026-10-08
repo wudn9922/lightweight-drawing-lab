@@ -36,6 +36,17 @@ function buildTimeline(timeframe: Timeframe): number[] {
   const asOfMonth = asOfDate.getUTCMonth();
   const asOfDay = asOfDate.getUTCDate();
   const date = new Date(asOfDate);
+  if (timeframe === '1M') {
+    // Monthly bars begin on the first UTC day. Walk calendar months and keep
+    // only months whose Eastern midnight close is no later than the fixed as-of.
+    date.setUTCDate(1);
+    while (times.length < 600) {
+      const time = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1) / 1000;
+      if (barEndTime(time, timeframe) <= DEMO_AS_OF) times.push(time);
+      date.setUTCMonth(date.getUTCMonth() - 1);
+    }
+    return times.reverse();
+  }
   if (timeframe === '1W') {
     date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
     let week = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) / 1000;
@@ -79,7 +90,7 @@ function buildTimeline(timeframe: Timeframe): number[] {
 
 export class DemoProvider implements MarketDataProvider {
   readonly id = 'demo';
-  readonly supportedTimeframes = ['5m', '15m', '30m', '1H', '4H', '1D', '1W'] as const;
+  readonly supportedTimeframes = ['5m', '15m', '30m', '1H', '4H', '1D', '1W', '1M'] as const;
   readonly capabilities = { corporateEvents: 'unavailable' } as const;
   async getBars(
     symbol: string,
@@ -106,6 +117,8 @@ export class DemoProvider implements MarketDataProvider {
     let price = base[normalizedSymbol] ?? 50 + (hash(normalizedSymbol) % 250);
     const fullBars: Bar[] = selected.map((time) => {
       const open = price,
+        // For 1M this 30-day interval is only an advisory volatility scale;
+        // the monthly timeline and close boundary are calendar-based.
         scale = Math.sqrt(intervalSeconds[timeframe] / 86400);
       const close = Math.max(1, open * (1 + (rand() - 0.485) * 0.027 * scale));
       const high = Math.max(open, close) * (1 + rand() * 0.008 * scale),

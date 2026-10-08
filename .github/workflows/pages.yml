@@ -5,6 +5,8 @@ on:
     branches:
       - main
   workflow_dispatch:
+  schedule:
+    - cron: '17 * * * 1-5'
 
 permissions:
   contents: read
@@ -27,6 +29,17 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run lint
+      - uses: actions/cache/restore@v4
+        with:
+          path: public/market-data
+          key: atlas-market-v2-${{ github.run_id }}
+          restore-keys: atlas-market-v2-
+      - run: node scripts/refresh-market.mjs
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: public/market-data
+          key: atlas-market-v2-${{ github.run_id }}
       - run: npm run build:pages
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

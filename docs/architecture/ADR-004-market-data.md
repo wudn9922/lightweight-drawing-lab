@@ -12,3 +12,7 @@ Prototype failure is visible with a button to switch to Demo. Switching data pro
 
 ## V1 extension (2026-10-06)
 Demo supports 5m/15m/30m/1H/4H/1D/1W scheduled simulated data. Yahoo exposes only supported direct intervals; 4H is unavailable for this prototype. Capability metadata controls the UI. A bounded IndexedDB TTL cache includes provider, symbol, timeframe and exact range. Source, last bar, delayed/simulated and cache state remain visible. Closed-bar research uses conservative regular-session end times (including DST and final shortened intraday bars); a production trading holiday/early-close calendar remains out of scope. Provider corporate events are actual split ratios/dividend amounts or explicitly unavailable.
+
+## Authorized UAT extension (2026-10-07)
+
+[ADR-011](ADR-011-timeframe-ownership-and-snapshot-prices.md) supersedes historical cross-timeframe defaults and Demo-only static prices. 1M is calendar-aware. Drawings/indicators/history/volume now belong to symbol+timeframe with validated atomic v3 migration. Yahoo quote OHLC is source-split-adjusted, never divided again; real static delayed snapshots and as-of metadata are published by the existing hourly weekday Actions workflow. SEC still needs a backend. Previous unadjusted wording is historical and must not guide new price normalization.

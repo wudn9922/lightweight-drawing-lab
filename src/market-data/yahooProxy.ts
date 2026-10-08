@@ -33,11 +33,11 @@ export function yahooProxy(): Plugin {
               return `interval=${mapping.interval}&range=${mapping.range}&includePrePost=false`;
             })();
         const response = await proxyFetch(
-          `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${query}`,
+          `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${query}`,
           {
             dispatcher,
             signal: AbortSignal.timeout(12000),
-            headers: { 'User-Agent': 'AtlasTerminal/0.1' },
+            headers: { 'User-Agent': 'Mozilla/5.0 AtlasResearchTerminal/1.0' },
           },
         );
         if (!response.ok) {
@@ -49,7 +49,7 @@ export function yahooProxy(): Plugin {
         const asOf = Date.now() / 1000;
         data = eventsRequest
           ? normalizeYahooEvents(payload, symbol, asOf)
-          : normalizeYahooResponse(payload, asOf);
+          : normalizeYahooResponse(payload, asOf, timeframe, symbol);
         failureStatus = 502;
         cache.set(key, { at: Date.now(), data });
       }

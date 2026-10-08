@@ -193,7 +193,7 @@ export class DrawingStateMachine {
       ...(type === 'fibonacci' ? { levels: [...DEFAULT_FIB_LEVELS] } : {}),
       locked: false,
       visible: true,
-      scope: { timeframes: 'all' },
+      scope: { timeframes: [points[0].timeframe] },
       style: {
         ...otherStyle,
         color: style.color ?? '#5ca9ff',

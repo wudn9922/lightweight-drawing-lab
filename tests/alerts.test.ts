@@ -1,6 +1,6 @@
 import { describe,it,expect } from 'vitest';
 import { alertSchema } from '../src/storage/schema';
-import { evaluateAlerts,reconcileDrawingAlerts } from '../src/alerts/AlertEngine';
+import { evaluateAlerts,reconcileDrawingAlerts,referenceLevel } from '../src/alerts/AlertEngine';
 import type { Bar } from '../src/market-data/MarketDataProvider';
 import type { Drawing } from '../src/drawing/DrawingModel';
 const bars=(values:number[]):Bar[]=>values.map((close,i)=>({time:1700000000+i*300,open:close,high:close+1,low:close-1,close,volume:100}));
@@ -41,5 +41,18 @@ describe('active-app alerts',()=>{
    expect(deleted[0].enabled).toBe(false);
    expect(deleted[0].invalidReason).toContain('deleted');
    expect(reconcileDrawingAlerts(start.definitions,'NVDA',[])).toEqual(start.definitions);
+ });
+ it('drawing alerts respect owner timeframe while hidden drawings remain valid references',()=>{
+   const daily={...drawing,visible:false,scope:{timeframes:['1D'] as '1D'[]}};
+   const dailyAlert=alertSchema.parse({...definition(),timeframe:'1D',kind:'drawing',drawingId:'level'});
+   const weeklyAlert=alertSchema.parse({...definition(),timeframe:'1W',kind:'drawing',drawingId:'level'});
+   expect(referenceLevel(dailyAlert,[daily])).toBe(10);
+   expect(referenceLevel(weeklyAlert,[daily])).toBeNull();
+   const ready=evaluateAlerts([dailyAlert],bars([9]),[daily],true);
+   expect(evaluateAlerts(ready.definitions,bars([9,11]),[daily]).events).toHaveLength(1);
+   const mismatch=evaluateAlerts([weeklyAlert],bars([9]),[daily]);
+   expect(mismatch.events).toEqual([]);
+   expect(mismatch.definitions[0]).toMatchObject({enabled:false,invalidReason:'Referenced drawing is scoped to another timeframe'});
+   expect(reconcileDrawingAlerts([weeklyAlert],'AAPL',[daily])[0]).toMatchObject({enabled:false,invalidReason:'Referenced drawing is scoped to another timeframe'});
  });
 });

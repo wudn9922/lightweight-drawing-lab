@@ -5,6 +5,7 @@ import {
   type BarResult,
   type CorporateEvent,
   type CorporateEventsResult,
+  type Timeframe,
 } from './MarketDataProvider';
 const prices = z.array(z.number().finite().nullable());
 const dividendSchema = z.object({
@@ -22,6 +23,12 @@ const responseSchema = z.object({
     result: z
       .array(
         z.object({
+          meta: z.object({
+            symbol: z.string(),
+            currency: z.string().optional(),
+            regularMarketPrice: z.number().finite().positive().optional(),
+            regularMarketTime: z.number().int().positive().optional(),
+          }).optional(),
           timestamp: z.array(z.number().int().positive()),
           indicators: z.object({
             quote: z.array(
@@ -57,12 +64,15 @@ const eventsResponseSchema = z.object({
 });
 export const YAHOO_SOURCE = 'Yahoo unofficial prototype · delayed / as-of data';
 /** Unofficial response structure stays entirely inside the provider boundary. */
-export function normalizeYahooResponse(raw: unknown, asOf = Date.now() / 1000): BarResult {
+export function normalizeYahooResponse(raw: unknown, asOf = Date.now() / 1000, timeframe?: Timeframe, expectedSymbol?: string): BarResult {
   if (!Number.isFinite(asOf) || asOf <= 0) throw new Error('Invalid Yahoo retrieval time');
   const result = responseSchema.parse(raw).chart.result?.[0],
     q = result?.indicators.quote[0];
   if (!result || !q) throw new Error('No data');
+  if (expectedSymbol && result.meta?.symbol !== normalizeSymbol(expectedSymbol)) throw new Error('Yahoo response symbol mismatch');
+  if (result.meta?.currency && result.meta.currency !== 'USD') throw new Error('Only USD market data is supported');
   const byTime = new Map<number, Bar>();
+  const originalTimes = new Map<number, number>();
   for (let i = 0; i < result.timestamp.length; i++) {
     const open = q.open[i],
       high = q.high[i],
@@ -83,8 +93,20 @@ export function normalizeYahooResponse(raw: unknown, asOf = Date.now() / 1000): 
     ) {
       throw new Error(`Invalid Yahoo OHLCV values at ${result.timestamp[i]}`);
     }
-    byTime.set(result.timestamp[i], {
-      time: result.timestamp[i],
+    const originalTime = result.timestamp[i];
+    const date = new Date(originalTime * 1000);
+    const time = timeframe === '1M'
+      ? Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1) / 1000
+      : timeframe === '1W'
+        ? Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - (date.getUTCDay() + 6) % 7) / 1000
+        : originalTime;
+    // Native weekly/monthly responses append a latest-session row after the
+    // aggregate. Keep the earliest source timestamp for a period: summing or
+    // replacing it would double count or lose the aggregate's OHLC/volume.
+    if ((timeframe === '1M' || timeframe === '1W') && (originalTimes.get(time) ?? Infinity) < originalTime) continue;
+    originalTimes.set(time, originalTime);
+    byTime.set(time, {
+      time,
       open,
       high,
       low,
@@ -94,12 +116,31 @@ export function normalizeYahooResponse(raw: unknown, asOf = Date.now() / 1000): 
   }
   const bars = [...byTime.values()].sort((a, b) => a.time - b.time);
   if (!bars.length) throw new Error('No valid bars');
+  // Yahoo's quote OHLC is already split-adjusted. adjclose also includes dividend
+  // adjustment and is intentionally not used. Never divide by events.splits again.
+  const verifiedBasis = !!result.meta;
+  const meta = result.meta;
+  const latest = bars.at(-1)!;
+  const metaTime = meta?.regularMarketTime;
+  const metaPrice = meta?.regularMarketPrice;
+  const useMeta = !!metaTime && !!metaPrice && metaTime >= latest.time && metaTime <= asOf + 300;
+  const quoteTime = useMeta ? metaTime : latest.time;
+  const quotePrice = useMeta ? metaPrice : latest.close;
+  const sameDay = new Date(quoteTime * 1000).toISOString().slice(0, 10) === new Date(latest.time * 1000).toISOString().slice(0, 10);
+  const previous = sameDay ? bars.at(-2)?.close : latest.close;
+  const quote = meta && timeframe === '1D' && previous && previous > 0 ? {
+    symbol: normalizeSymbol(meta.symbol), price: quotePrice, change: quotePrice - previous,
+    changePercent: (quotePrice / previous - 1) * 100, asOf: quoteTime,
+    source: YAHOO_SOURCE, dataState: 'delayed' as const, retrievedAt: asOf, cacheStatus: 'fresh' as const,
+  } : undefined;
   return {
     bars,
     source: YAHOO_SOURCE,
     session: 'regular',
     delayed: true,
-    adjusted: false,
+    adjusted: verifiedBasis,
+    priceBasis: verifiedBasis ? 'split-adjusted' : 'unknown',
+    ...(quote ? { quote } : {}),
     asOf,
     latestBarAt: bars.at(-1)!.time,
     dataState: 'delayed',

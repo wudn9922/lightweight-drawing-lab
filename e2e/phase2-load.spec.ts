@@ -52,6 +52,10 @@ test('Phase 2 mixed geometry: 2,500 bars, 8 SMAs and 100 locked objects keep pan
     color: '#f0b35b',
     scope: {},
   }));
+  const migratedDrawings = drawings.map((drawing) => ({
+    ...drawing,
+    scope: { timeframes: [drawing.points[0].timeframe] },
+  }));
   await page.getByLabel('Settings file', { exact: true }).setInputFiles({
     name: 'mixed-load.json',
     mimeType: 'application/json',
@@ -96,7 +100,7 @@ test('Phase 2 mixed geometry: 2,500 bars, 8 SMAs and 100 locked objects keep pan
     db.close();
     return result;
   });
-  expect(stored).toEqual(drawings);
+  expect(stored).toEqual(migratedDrawings);
   expect(errors).toEqual([]);
   await page.screenshot({ path: 'scratch/stress-phase2-mixed.png' });
 });

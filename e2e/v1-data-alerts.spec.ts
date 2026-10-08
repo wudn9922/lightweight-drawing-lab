@@ -11,6 +11,8 @@ const TF_SECONDS: Record<Timeframe, number> = {
   '4H': 14400,
   '1D': 86400,
   '1W': 604800,
+  // Advisory volatility interval only; monthly bars below use calendar boundaries.
+  '1M': 2592000,
 };
 
 type YahooMode = 'baseline' | 'crossing';
@@ -28,7 +30,14 @@ function normalizedBars(timeframe: Timeframe, closes?: number[]): Bar[] {
   const values = closes ?? Array.from({ length: 12 }, (_, index) => 90 + index);
   let barValues = values;
   let times: number[];
-  if (timeframe === '1D') {
+  if (timeframe === '1M') {
+    const date = new Date('2025-10-01T00:00:00Z');
+    times = values.map(() => {
+      const time = date.getTime() / 1000;
+      date.setUTCMonth(date.getUTCMonth() + 1);
+      return time;
+    });
+  } else if (timeframe === '1D') {
     const date = new Date('2026-09-14T00:00:00Z');
     times = [];
     while (times.length < values.length) {
@@ -176,6 +185,16 @@ async function readAlerts(page: Page): Promise<AlertDefinition[]> {
   });
 }
 
+async function yahooCacheProviderId(page: Page): Promise<string> {
+  return page.evaluate(async () => {
+    const { YahooProvider } = await import(
+      new URL('/src/market-data/YahooProvider.ts', location.origin).href
+    );
+    const provider = new YahooProvider();
+    return provider.cacheVersion ? `${provider.id}:${provider.cacheVersion}` : provider.id;
+  });
+}
+
 async function openAlerts(page: Page) {
   if (await page.locator('.mobile-nav').isVisible()) {
     await page
@@ -189,7 +208,7 @@ async function openAlerts(page: Page) {
   await expect(page.locator('.alert-panel')).toBeVisible();
 }
 
-test('Yahoo exposes only its six direct intervals and caches normalized delayed bars by symbol and timeframe', async ({
+test('Yahoo exposes its seven direct intervals and caches normalized delayed bars by symbol and timeframe', async ({
   page,
 }) => {
   await page.clock.install({ time: new Date(AS_OF * 1000) });
@@ -200,8 +219,9 @@ test('Yahoo exposes only its six direct intervals and caches normalized delayed 
   await expect(page.getByLabel('Timeframe 4H', { exact: true })).toHaveCount(1);
   await page.getByLabel('Market data source', { exact: true }).selectOption('yahoo');
   await loaded(page);
+  const providerId = await yahooCacheProviderId(page);
   await expect(page.getByLabel('Timeframe 4H', { exact: true })).toHaveCount(0);
-  await expect(page.locator('.timeframe-buttons button')).toHaveCount(6);
+  await expect(page.locator('.timeframe-buttons button')).toHaveCount(7);
   await expect(page.locator('.data-source')).toContainText('Yahoo normalized browser fixture');
   await expect(page.locator('.data-source')).toContainText(/delayed/i);
   await expect(page.locator('.data-source')).toContainText('fresh');
@@ -209,7 +229,7 @@ test('Yahoo exposes only its six direct intervals and caches normalized delayed 
   const initialDaily = await readMarketCache(page);
   const dailyEntry = initialDaily.find(
     (entry) =>
-      entry.providerId === 'yahoo' &&
+      entry.providerId === providerId &&
       entry.kind === 'bars' &&
       entry.symbol === 'AAPL' &&
       entry.timeframe === '1D',
@@ -218,7 +238,7 @@ test('Yahoo exposes only its six direct intervals and caches normalized delayed 
   expect(dailyEntry?.value.delayed).toBe(true);
   expect(dailyEntry?.value.source).toContain('Yahoo normalized browser fixture');
 
-  for (const timeframe of ['5m', '15m', '30m', '1H', '1D', '1W'] as const) {
+  for (const timeframe of ['5m', '15m', '30m', '1H', '1D', '1W', '1M'] as const) {
     await page.getByLabel(`Timeframe ${timeframe}`, { exact: true }).click();
     await expect(page.getByLabel(`Timeframe ${timeframe}`, { exact: true })).toHaveAttribute(
       'aria-pressed',
@@ -226,7 +246,7 @@ test('Yahoo exposes only its six direct intervals and caches normalized delayed 
     );
     await loaded(page);
   }
-  for (const timeframe of ['5m', '15m', '30m', '1H', '1D', '1W'] as const) {
+  for (const timeframe of ['5m', '15m', '30m', '1H', '1D', '1W', '1M'] as const) {
     expect(counts.get(`AAPL:${timeframe}`) ?? 0).toBeGreaterThan(0);
   }
 
@@ -239,7 +259,7 @@ test('Yahoo exposes only its six direct intervals and caches normalized delayed 
   expect(
     cache.some(
       (entry) =>
-        entry.providerId === 'yahoo' &&
+        entry.providerId === providerId &&
         entry.kind === 'bars' &&
         entry.symbol === 'AAPL' &&
         entry.timeframe === '15m',
@@ -261,11 +281,12 @@ test('expired Yahoo bars remain visible with a stale label when refresh fails', 
   await loaded(page);
   await page.getByLabel('Market data source', { exact: true }).selectOption('yahoo');
   await loaded(page);
+  const providerId = await yahooCacheProviderId(page);
   await expect(page.locator('.data-source')).toContainText('fresh');
   expect(
     (await readMarketCache(page)).some(
       (entry) =>
-        entry.providerId === 'yahoo' &&
+        entry.providerId === providerId &&
         entry.kind === 'bars' &&
         entry.symbol === 'AAPL' &&
         entry.timeframe === '1D',

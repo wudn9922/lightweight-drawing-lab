@@ -29,9 +29,18 @@ const drawing: Drawing = {
   ],
   locked: true,
   visible: true,
-  scope: { timeframes: 'all' },
+  scope: { timeframes: ['1D'] },
   style: { color: '#5ca9ff', lineWidth: 2 },
 };
+const drawingFor = (timeframe: '1D' | '1W' | '1M', id: string, price = 100): Drawing => ({
+  id, symbol: 'AAPL', type: 'trend',
+  points: [
+    { time: 1700000000, logical: 10, price, timeframe },
+    { time: 1700086400, logical: 11, price: price + 5, timeframe },
+  ],
+  locked: false, visible: true, scope: { timeframes: [timeframe] },
+  style: { color: '#5ca9ff', lineWidth: 2 },
+});
 async function setup() {
   const db = new IndexedDBStore('test-' + crypto.randomUUID()),
     store = new AppStore(db);
@@ -39,6 +48,73 @@ async function setup() {
   return { db, store };
 }
 describe('per-symbol persistence and settings', () => {
+  it('isolates AAPL indicators and drawings across 1D/1W/1M and reloads every timeframe bucket', async () => {
+    const { db, store } = await setup();
+    const records = [
+      { timeframe: '1D' as const, period: 24 },
+      { timeframe: '1W' as const, period: 58 },
+      { timeframe: '1M' as const, period: 43 },
+    ];
+    for (const [index, record] of records.entries()) {
+      store.updateSymbol('AAPL', s => ({ ...s, preferences: { ...s.preferences, timeframe: record.timeframe } }));
+      store.addIndicator(indicator('AAPL', record.period, false));
+      store.commitDrawings('AAPL', [...store.symbol('AAPL').drawings, drawingFor(record.timeframe, `line-${index}`)], 'create');
+      expect(store.symbol('AAPL').indicators.at(-1)?.scope.timeframe).toBe(record.timeframe);
+      expect(store.symbol('AAPL').drawings.at(-1)?.scope.timeframes).toEqual([record.timeframe]);
+    }
+    expect(store.symbol('AAPL').drawings).toHaveLength(3);
+    expect(store.symbol('AAPL').indicators.map(i => i.period)).toEqual([24, 58, 43]);
+    const dailyId = store.symbol('AAPL').indicators[0].id;
+    store.updateIndicator('AAPL', dailyId, { period: 99 });
+    store.removeIndicator('AAPL', dailyId);
+    expect(store.symbol('AAPL').indicators[0].period).toBe(24);
+    expect(store.symbol('AAPL').indicators).toHaveLength(3);
+    await store.flush();
+    const reload = new AppStore(db);
+    await reload.initialize();
+    for (const record of records) {
+      expect(reload.symbol('AAPL').indicators.filter(i => i.scope.timeframe === record.timeframe).map(i => i.period)).toEqual([record.period]);
+      expect(reload.symbol('AAPL').drawings.filter(d => d.scope.timeframes.includes(record.timeframe))).toHaveLength(1);
+    }
+    await db.close();
+  });
+
+  it('undo and redo merge only the current timeframe bucket using latest other-timeframe drawings', async () => {
+    const { db, store } = await setup();
+    const daily = drawingFor('1D', 'daily'), weekly = drawingFor('1W', 'weekly', 200);
+    store.commitDrawings('AAPL', [daily], 'create');
+    store.updateSymbol('AAPL', s => ({ ...s, preferences: { ...s.preferences, timeframe: '1W' } }));
+    store.commitDrawings('AAPL', [...store.symbol('AAPL').drawings, weekly], 'create');
+    store.updateSymbol('AAPL', s => ({ ...s, preferences: { ...s.preferences, timeframe: '1D' } }));
+    store.commitDrawings('AAPL', store.symbol('AAPL').drawings.map(d => d.id === daily.id
+      ? { ...d, points: d.points.map(p => ({ ...p, price: p.price + 20 })) }
+      : d), 'edit P1');
+    store.updateSymbol('AAPL', s => ({ ...s, preferences: { ...s.preferences, timeframe: '1W' } }));
+    store.commitDrawings('AAPL', store.symbol('AAPL').drawings.map(d => d.id === weekly.id
+      ? { ...d, points: d.points.map(p => ({ ...p, price: p.price + 30 })) }
+      : d), 'edit P1');
+
+    store.updateSymbol('AAPL', s => ({ ...s, preferences: { ...s.preferences, timeframe: '1D' } }));
+    expect(store.history().canUndo).toBe(true);
+    expect(store.history('AAPL', '1W')).not.toBe(store.history('AAPL', '1D'));
+    store.undo();
+    expect(store.symbol('AAPL').drawings.find(d => d.id === daily.id)?.points[0].price).toBe(100);
+    expect(store.symbol('AAPL').drawings.find(d => d.id === weekly.id)?.points[0].price).toBe(230);
+    store.redo();
+    expect(store.symbol('AAPL').drawings.find(d => d.id === daily.id)?.points[0].price).toBe(120);
+    expect(store.symbol('AAPL').drawings.find(d => d.id === weekly.id)?.points[0].price).toBe(230);
+    store.undo();
+    store.updateSymbol('AAPL', s => ({ ...s, preferences: { ...s.preferences, timeframe: '1W' } }));
+    store.undo();
+    expect(store.symbol('AAPL').drawings.find(d => d.id === daily.id)?.points[0].price).toBe(100);
+    expect(store.symbol('AAPL').drawings.find(d => d.id === weekly.id)?.points[0].price).toBe(200);
+    store.redo();
+    expect(store.symbol('AAPL').drawings.find(d => d.id === daily.id)?.points[0].price).toBe(100);
+    expect(store.symbol('AAPL').drawings.find(d => d.id === weekly.id)?.points[0].price).toBe(230);
+    await store.flush();
+    await db.close();
+  });
+
   it('isolates AAPL 24/58, NVDA 43/56 and drawings through switch and reload', async () => {
     const { db, store } = await setup();
     for (const p of [24, 58]) store.addIndicator(indicator('AAPL', p));
@@ -122,8 +198,10 @@ describe('per-symbol persistence and settings', () => {
     const { db, store } = await setup();
     store.addIndicator(indicator('AAPL', 24));
     const exported = await store.export();
+    const legacyGlobal = { ...drawing, scope: { timeframes: 'all' as const } };
     for (const malformed of [
       { ...exported, version: 99 },
+      { ...exported, symbols: [{ ...emptySymbol('AAPL'), drawings: [legacyGlobal] }] },
       { ...exported, symbols: [{ ...emptySymbol('NVDA'), drawings: [drawing] }] },
       { ...exported, symbols: [{ ...emptySymbol('AAPL'), drawings: [drawing, drawing] }] },
       {

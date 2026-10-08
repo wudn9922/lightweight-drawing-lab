@@ -16,7 +16,8 @@ const STATIC_BACKEND_REQUIRED =
 
 export class YahooProvider implements MarketDataProvider {
   readonly id = 'yahoo';
-  readonly supportedTimeframes = ['5m', '15m', '30m', '1H', '1D', '1W'] as const;
+  readonly cacheVersion = 'split-basis-v2-calendar-aggregate';
+  readonly supportedTimeframes = ['5m', '15m', '30m', '1H', '1D', '1W', '1M'] as const;
   readonly capabilities = { corporateEvents: 'available' } as const;
   async getBars(
     symbol: string,
@@ -81,6 +82,7 @@ export class YahooProvider implements MarketDataProvider {
   async getQuote(symbol: string, signal?: AbortSignal): Promise<Quote> {
     const normalizedSymbol = normalizeSymbol(symbol);
     const result = await this.getBars(normalizedSymbol, '1D', undefined, signal);
+    if (result.quote) return { ...result.quote, cacheStatus: result.cacheStatus };
     const { bars } = result;
     const a = bars.at(-1),
       b = bars.at(-2);

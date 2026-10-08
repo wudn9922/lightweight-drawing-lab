@@ -3,6 +3,7 @@ import {
   appSchema,
   symbolStateSchema,
   exportSchema,
+  upgradeLegacySettings,
   type SymbolState,
   type AppSettings,
   type SettingsExport,
@@ -19,24 +20,24 @@ export const defaultApp: AppSettings = appSchema.parse({
 export class IndexedDBStore {
   private db: Promise<IDBPDatabase<AtlasDB>>;
   constructor(name = 'atlas-terminal') {
-    this.db = openDB<AtlasDB>(name, 2, {
+    this.db = openDB<AtlasDB>(name, 3, {
       async upgrade(db, oldVersion, _newVersion, tx) {
         if (oldVersion < 1) {
           db.createObjectStore('symbols', { keyPath: 'symbol' });
           db.createObjectStore('app');
         }
-        if (oldVersion === 1) {
+        if (oldVersion === 1 || oldVersion === 2) {
           // idb exposes a separate completion promise even during versionchange.
           // Observe its rejection while the open request still reports migration failure.
           void tx.done.catch(() => undefined);
           try {
-            const app = await tx.objectStore('app').get('settings');
-            if (app) await tx.objectStore('app').put(appSchema.parse(app), 'settings');
-            let cursor = await tx.objectStore('symbols').openCursor();
-            while (cursor) {
-              await cursor.update(symbolStateSchema.parse(cursor.value));
-              cursor = await cursor.continue();
-            }
+            const app = await tx.objectStore('app').get('settings') ?? structuredClone(defaultApp);
+            const symbols = await tx.objectStore('symbols').getAll();
+            const migrated = upgradeLegacySettings({
+              exportedAt: new Date().toISOString(), app, symbols,
+            }, oldVersion === 1 ? 1 : 2);
+            for (const state of migrated.symbols) await tx.objectStore('symbols').put(state);
+            await tx.objectStore('app').put(migrated.app, 'settings');
           } catch {
             tx.abort();
           }
@@ -60,7 +61,7 @@ export class IndexedDBStore {
   }
   async export(): Promise<SettingsExport> {
     const { app, symbols } = await this.load();
-    return exportSchema.parse({ version: 2, exportedAt: new Date().toISOString(), app, symbols });
+    return exportSchema.parse({ version: 3, exportedAt: new Date().toISOString(), app, symbols });
   }
   async import(data: SettingsExport) {
     const validated = exportSchema.parse(data),

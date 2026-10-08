@@ -1,3 +1,19 @@
+# Current review: 1M / timeframe ownership / delayed real prices (2026-10-08)
+
+Status: implementation 100%, verification 95%. The current verified workspace snapshot has not yet been published, so no live-site claim is made for this revision. Earlier deployment evidence below applies to its own published revision. Independent external review and physical-device UAT remain pending.
+
+Final gates: clean `npm ci`; 156 unit tests across 19 files; lint, typecheck, normal build, and Pages build PASS. Normal browser gate: 98 passed, 10 original expected skips, 0 failed (11.5 minutes). Pages browser gate: 16 passed, 0 failed (1.8 minutes). Combined: 114 passed, 10 expected skips. The first Pages run had three test-only failures: mobile quote rows were hidden behind the Watchlist drawer, and the service worker intercepted the mocked unknown-snapshot 404. A mobile-aware quote helper and service-worker blocking for only the snapshot-mock test fixed the harness. Original offline/PWA tests still run with the service worker enabled; no assertions or skips were removed. Application source has not changed since the normal gate; final test-only changes pass lint and typecheck.
+
+Next action: primary will publish the verified source without force, then verify live TLS-enabled HTTP responses and iPhone WebKit. No current-revision publication or live proof is claimed until those checks complete.
+
+Primary decisions: ADR-011 supersedes old cross-timeframe and Demo-only Pages assumptions. GPT-6.1 Sol High completed read-only plan/review; Luna 6 Max executed the frozen plan. Independent Gemini/Claude review remains pending; no independent sign-off is claimed.
+
+Implementation map: calendar `MarketTiming`/`TimeMapper`, 600 Demo 1M bars, native Yahoo 1mo/1wk aggregation; strict scope v3 IndexedDB/export/import with legacy v1/v2 adapters and migration provenance; bucket drawing history, preset rebinding, Volume overrides, scoped alerts/panels; normalized split-adjusted Yahoo bars and metadata quotes with versioned cache; SnapshotProvider/schema v2, same-origin files, hourly Actions refresh for 20 symbols, and explicit missing-data errors. Fixtures contain actual SMCI/NFLX daily split windows and native 1mo/1wk payloads with source/SHA provenance.
+
+Review triage: P1-MONTH-01 ACCEPTED—native Yahoo's latest-session row overwrote the current monthly bar or created an extra weekly period. Root verified the actual payload and fixed aggregation to retain the earliest source timestamp per calendar bucket without summing duplicates; native fixtures and cache/schema v2 were added. P1-SCOPE-02 ACCEPTED—stale indicator callbacks could modify another timeframe; active-timeframe guards, immutable scope, and captured chart-commit timeframe are in place. Primary also accepted current-store drawing lookup and active-timeframe alert evaluation. Original cross-timeframe browser expectations now verify hidden/retained/restored drawings while keeping gesture coverage. No other blocking review finding is reported.
+
+External reviewer request: inspect legacy timeframe ownership, transactional data preservation, bucket undo, locked commits, alert scope, Volume compatibility, native current-period aggregation, quote as-of metadata, double-adjustment risks, unavailable/offline data, and partial Actions refresh. Return findings to primary for accept/reject triage before code changes. Read ADR-011, source/tests, and `docs/TIMEFRAME_PRICE_VERIFICATION.md`; do not claim live execution precision, physical Safari equivalence, or headless RAF as device FPS.
+
 # Atlas V1 independent review package
 
 ## iPhone screenshot UAT correction — 2026-10-07

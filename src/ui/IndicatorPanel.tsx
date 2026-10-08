@@ -9,14 +9,17 @@ import {
   type IndicatorType,
   type PriceSource,
 } from '../indicators/IndicatorRegistry';
+import type { Timeframe } from '../market-data/MarketDataProvider';
 
 export function IndicatorPanel({
   store,
   symbol,
+  timeframe,
   indicators,
 }: {
   store: AppStore;
   symbol: string;
+  timeframe: Timeframe;
   indicators: IndicatorInstance[];
 }) {
   const periodId = useId();
@@ -28,6 +31,7 @@ export function IndicatorPanel({
   const [selectedPreset, setSelectedPreset] = useState('');
   const [error, setError] = useState('');
   const presets = store.getSnapshot().app.indicatorPresets;
+  const indicatorHome = store.symbol(symbol).preferences.ownershipMigration?.indicatorHome;
   const isVolume = indicatorType === 'Volume';
 
   const add = () => {
@@ -46,7 +50,7 @@ export function IndicatorPanel({
         locked: false,
         lineWidth: 2,
         color: indicatorColors[indicators.length % indicatorColors.length],
-        scope: {},
+        scope: { timeframe },
       });
     } catch (caught) {
       setError(reportError('ui', caught));
@@ -109,7 +113,14 @@ export function IndicatorPanel({
         <span>MOVING AVERAGES</span>
         <span>{indicators.length}</span>
       </div>
-      <p className="muted small">{symbol} 專屬設定 · 跨週期套用</p>
+      <p className="muted small" data-testid="indicator-scope">
+        {symbol} · {timeframe} 股票＋週期專屬
+      </p>
+      {indicatorHome && (
+        <p className="muted small" role="note">
+          舊均線已歸入 {indicatorHome}；各週期現在獨立。
+        </p>
+      )}
       {error && (
         <p className="research-error" role="alert">
           {error}

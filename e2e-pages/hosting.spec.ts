@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { resolve } from 'node:path';
+import { normalizeYahooEvents, normalizeYahooResponse } from '../src/market-data/YahooNormalizer';
+import { snapshotSchema } from '../src/market-data/SnapshotSchema';
 import type { SymbolState } from '../src/storage/schema';
 
 const base = '/lightweight-drawing-lab/';
@@ -35,6 +37,55 @@ async function switchSymbol(page: Page, symbol: string) {
   await search.press('Enter');
   await expect(page.getByTestId('active-symbol')).toHaveText(symbol);
   await loaded(page);
+}
+async function addWatchlistTicker(page: Page, ticker: string) {
+  const nav = page.locator('.mobile-nav');
+  const mobile = await nav.isVisible();
+  if (mobile) await nav.getByRole('button', { name: 'Watchlist', exact: true }).click();
+  const row = page.getByRole('button', { name: `Select ${ticker}`, exact: true });
+  if (!(await row.isVisible())) {
+    await page.getByRole('button', { name: 'Add watchlist symbol', exact: true }).click();
+    await page.getByLabel('Watchlist ticker', { exact: true }).fill(ticker);
+    await page.getByRole('button', { name: 'Add', exact: true }).click();
+  }
+  await expect(row).toBeVisible();
+  if (mobile) await closePanel(page);
+}
+async function expectWatchlistQuote(page: Page, symbol: string, price: string) {
+  const nav = page.locator('.mobile-nav');
+  const mobile = await nav.isVisible();
+  if (mobile) await nav.getByRole('button', { name: 'Watchlist', exact: true }).click();
+  const row = page.getByRole('button', { name: `Select ${symbol}`, exact: true });
+  await expect(row).toContainText(price);
+  await expect(row).toContainText('delayed');
+  if (mobile) await closePanel(page);
+}
+
+function snapshotFromActualFixture(symbol: 'SMCI' | 'NFLX') {
+  const fixtureAsOf = Date.now() / 1000;
+  const readFixture = (period: '1d' | '1wk' | '1mo') =>
+    JSON.parse(
+      readFileSync(
+        resolve(
+          'tests/fixtures/market',
+          period === '1d' ? `${symbol}.json` : `${symbol}-${period}.json`,
+        ),
+        'utf8',
+      ),
+    ) as unknown;
+  const dailyRaw = readFixture('1d');
+  const daily = normalizeYahooResponse(dailyRaw, fixtureAsOf, '1D', symbol);
+  const weekly = normalizeYahooResponse(readFixture('1wk'), fixtureAsOf, '1W', symbol);
+  const monthly = normalizeYahooResponse(readFixture('1mo'), fixtureAsOf, '1M', symbol);
+  if (!daily.quote) throw new Error(`${symbol} fixture has no validated daily quote`);
+  return snapshotSchema.parse({
+    version: 2,
+    symbol,
+    generatedAt: fixtureAsOf,
+    results: { '1D': daily, '1W': weekly, '1M': monthly },
+    quote: daily.quote,
+    events: normalizeYahooEvents(dailyRaw, symbol, fixtureAsOf),
+  });
 }
 async function savedSymbol(page: Page, symbol: string): Promise<SymbolState | undefined> {
   return page.evaluate(async (ticker) => {
@@ -112,12 +163,15 @@ test('project-path PWA preserves scope, drawings, isolated MAs and portable back
     expect((await page.request.get(url)).ok()).toBe(true);
   }
   await expect(page.locator('.static-hosting-note')).toHaveText(
-    'GitHub Pages：Demo／畫線／指標可用；Yahoo 與 SEC 財報需要 backend，本頁暫不可用。',
+    'GitHub Pages：延遲快照、Demo、畫線及指標可用；即時 Yahoo 與 SEC 財報需要 backend，本頁不可用。',
   );
   await expect(page.locator('.static-hosting-note')).toBeVisible();
   await expect(
     page.getByLabel('Market data source', { exact: true }).locator('option[value="yahoo"]'),
   ).toBeDisabled();
+  await expect(
+    page.getByLabel('Market data source', { exact: true }).locator('option[value="snapshot"]'),
+  ).toBeEnabled();
   await addMA(page, 24);
   await page.getByRole('button', { name: 'Lock SMA 24', exact: true }).click();
   await addMA(page, 58);
@@ -177,6 +231,10 @@ test('project-path PWA preserves scope, drawings, isolated MAs and portable back
     [24, true],
     [58, false],
   ]);
+  expect((await savedSymbol(page, 'AAPL'))?.drawings[0].locked).toBe(true);
+  await page.getByLabel('Market data source', { exact: true }).selectOption('snapshot');
+  await loaded(page);
+  await expect(page.locator('.demo-badge')).toHaveText('DELAYED SNAPSHOT');
   expect((await savedSymbol(page, 'AAPL'))?.drawings[0].locked).toBe(true);
   await openPanel(page, 'financials');
   await expect(page.getByTestId('financial-panel')).toContainText('SEC 財報需要 backend');
@@ -263,4 +321,88 @@ test('scoped production shell and local Demo settings reopen offline', async ({
     server?.kill('SIGTERM');
     await context.setOffline(false);
   }
+});
+
+test.describe('delayed snapshot source', () => {
+  test.use({ serviceWorkers: 'block' });
+
+  test('Pages exposes 1W/1M delayed SMCI/NFLX snapshots without backend fallback', async ({
+    page,
+  }) => {
+    const apiRequests: string[] = [];
+    const snapshotRequests: string[] = [];
+    const runtimeErrors: string[] = [];
+    const fixtures = {
+      SMCI: snapshotFromActualFixture('SMCI'),
+      NFLX: snapshotFromActualFixture('NFLX'),
+    };
+    expect(fixtures.SMCI.results['1M']?.bars.at(-1)).toMatchObject({ volume: 120881200 });
+    expect(fixtures.SMCI.results['1M']?.bars.at(-1)?.close).toBeCloseTo(43.46, 2);
+    expect(fixtures.NFLX.results['1M']?.bars.at(-1)?.close).toBeCloseTo(68.69, 2);
+    page.on('pageerror', (error) => runtimeErrors.push(error.message));
+    page.on('request', (request) => {
+      if (/\/api\//.test(new URL(request.url()).pathname)) apiRequests.push(request.url());
+    });
+    await page.route('**/market-data/*.json', async (route) => {
+      const file = new URL(route.request().url()).pathname.split('/').at(-1) ?? '';
+      const symbol = decodeURIComponent(file.replace(/\.json$/, ''));
+      snapshotRequests.push(symbol);
+      const snapshot = fixtures[symbol as keyof typeof fixtures];
+      if (!snapshot) {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'No fixture for this public snapshot symbol' }),
+        });
+        return;
+      }
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify(snapshot) });
+    });
+
+    await page.goto(base);
+    await loaded(page);
+    await addWatchlistTicker(page, 'SMCI');
+    await addWatchlistTicker(page, 'NFLX');
+    await switchSymbol(page, 'SMCI');
+    await page.getByLabel('Market data source', { exact: true }).selectOption('snapshot');
+    await loaded(page);
+    await expect(page.locator('.demo-badge')).toHaveText('DELAYED SNAPSHOT');
+    await expect(page.getByTestId('ohlc-header')).toContainText('C 43.46');
+    await expectWatchlistQuote(page, 'SMCI', '43.46');
+
+    const weekly = page.getByRole('button', { name: 'Timeframe 1W', exact: true });
+    await expect(weekly).toBeEnabled();
+    await weekly.click();
+    await loaded(page);
+    await expect(page.getByTestId('ohlc-header')).toContainText('C 43.46');
+
+    const monthly = page.getByRole('button', { name: 'Timeframe 1M', exact: true });
+    await expect(monthly).toBeEnabled();
+    await monthly.click();
+    await loaded(page);
+    await expect(page.getByTestId('ohlc-header')).toContainText('C 43.46');
+
+    await switchSymbol(page, 'NFLX');
+    await expect(page.getByTestId('ohlc-header')).toContainText('C 68.69');
+    await expectWatchlistQuote(page, 'NFLX', '68.69');
+    await expect(page.getByLabel('Market data source', { exact: true })).toHaveValue('snapshot');
+    await page.getByRole('button', { name: 'Timeframe 1W', exact: true }).click();
+    await loaded(page);
+    await expect(page.getByTestId('ohlc-header')).toContainText('C 68.69');
+    await monthly.click();
+    await loaded(page);
+
+    await page.getByLabel('Symbol search', { exact: true }).fill('ZZZZ');
+    await page.getByLabel('Symbol search', { exact: true }).press('Enter');
+    await expect(page.getByTestId('active-symbol')).toHaveText('ZZZZ');
+    await expect(page.locator('.chart-loading.error')).toContainText('ZZZZ 暫無延遲快照');
+    await expect(page.locator('.demo-badge')).toHaveText('DELAYED SNAPSHOT');
+    await expect(page.getByLabel('Market data source', { exact: true })).toHaveValue('snapshot');
+    await expect(page.getByRole('button', { name: '使用離線 Demo', exact: true })).toBeVisible();
+    expect(snapshotRequests).toContain('SMCI');
+    expect(snapshotRequests).toContain('NFLX');
+    expect(snapshotRequests).toContain('ZZZZ');
+    expect(apiRequests).toEqual([]);
+    expect(runtimeErrors).toEqual([]);
+  });
 });
