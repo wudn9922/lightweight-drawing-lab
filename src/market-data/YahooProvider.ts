@@ -13,10 +13,18 @@ import { STATIC_HOSTING } from '../app/HostingMode';
 
 const STATIC_BACKEND_REQUIRED =
   'Yahoo 資料需要 backend；此 GitHub Pages 靜態部署沒有 Yahoo backend，請連接 backend 或手動選擇 Demo。';
+type CalendarBarResult = BarResult & { normalization?: { currentPeriod?: { timeframe: '1W' | '1M'; periodStart: number } } };
+
+function periodSource(source: string, result: CalendarBarResult, bars: BarResult['bars']) {
+  const period = result.normalization?.currentPeriod;
+  return period && bars.some(bar => bar.time === period.periodStart)
+    ? `${source} · ${period.timeframe === '1W' ? '本週' : '本月'} K由日 K彙總`
+    : source;
+}
 
 export class YahooProvider implements MarketDataProvider {
   readonly id = 'yahoo';
-  readonly cacheVersion = 'split-basis-v2-calendar-aggregate';
+  readonly cacheVersion = 'split-basis-v3-daily-current-period';
   readonly supportedTimeframes = ['5m', '15m', '30m', '1H', '1D', '1W', '1M'] as const;
   readonly capabilities = { corporateEvents: 'available' } as const;
   async getBars(
@@ -39,13 +47,13 @@ export class YahooProvider implements MarketDataProvider {
       }
       throw new Error(`Yahoo request rejected (${res.status})`);
     }
-    const result = (await res.json()) as BarResult;
+    const result = (await res.json()) as CalendarBarResult;
     if (!result || !Array.isArray(result.bars) || typeof result.source !== 'string') {
       throw new Error('Yahoo returned invalid bar data');
     }
     const bars = filterBarsByRange(result.bars, normalizedRange);
     if (!bars.length) throw new Error('No Yahoo bars in requested range');
-    return { ...result, bars, latestBarAt: bars.at(-1)!.time };
+    return { ...result, bars, source: periodSource(result.source, result, bars), latestBarAt: bars.at(-1)!.time };
   }
   async getCorporateEvents(
     symbol: string,

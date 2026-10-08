@@ -28,6 +28,23 @@ export interface Quote {
   retrievedAt?: number;
   cacheStatus?: CacheStatus;
 }
+export interface BarNormalization {
+  healedDailyClose?: {
+    method: 'validated-regular-market-price';
+    time: number;
+    quoteAsOf: number;
+  };
+  currentPeriod?: {
+    method: 'daily-ohlcv';
+    timeframe: '1W' | '1M';
+    periodStart: number;
+    firstDailyTime: number;
+    lastDailyTime: number;
+    dailyCount: number;
+    quoteAsOf: number;
+    native?: Bar;
+  };
+}
 export interface BarResult {
   bars: Bar[];
   source: string;
@@ -36,6 +53,7 @@ export interface BarResult {
   adjusted: boolean;
   priceBasis?: 'split-adjusted' | 'unadjusted' | 'unknown';
   quote?: Quote;
+  normalization?: BarNormalization;
   /** Retrieval time in Unix seconds (for Demo, its fixed simulation as-of). */
   asOf?: number;
   /** Explicit timestamp of the last normalized bar. */

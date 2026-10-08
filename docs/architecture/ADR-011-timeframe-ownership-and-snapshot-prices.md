@@ -31,3 +31,13 @@ UI labels delayed snapshots, exact market/retrieval time and non-real-time statu
 ## Verification
 
 Unit cases cover monthly calendar/leap/future/closure, strict v3 legacy migration, lock/history/preset/alert/volume isolation, actual SMCI/NFLX split-window preservation, quote metadata, dividend distinction, snapshot validation/missing/range/dedup and cache basis identity. Browser gates retain all previous interactions and add1D/1W/1M ownership/reload/backup plus static actual-fixture price tests on all four profiles. Physical-device UAT and independent external review remain separate from headless verification.
+
+## Current-period correction — 2026-10-08
+
+Live inspection found Yahoo native weekly/monthly aggregates still through October 6 while their appended session and metadata represented October 7. Keeping the aggregate prevented volume loss, but left its close stale. The daily response also contained an explicit null latest close. This supersedes aggregate retention for the current period only; native historical bars remain unchanged.
+
+The latest daily explicit null close may use `regularMarketPrice` only with a matching session date, bounded market timestamp, valid OHLC bounds and real volume. Historical nulls and missing array entries are not filled. The normalized record retains the method, original bar time and quote time.
+
+Current weekly/monthly OHLCV is reconstructed from unique validated daily sessions: first open, maximum high, minimum low, last close and summed volume. Never add an appended session to a native aggregate: revised source volume can overlap. Require matching issuer/USD/split basis, non-stale market timestamps, compatible quote prices and native opening price, and all provider-supplied rows in that bucket to be valid. History coverage guards the first period. This checks supplied observations, not a certified exchange holiday calendar. Failure omits the interval; an inconsistent daily refresh preserves the previous entire snapshot with its old timestamps.
+
+The reconstruction includes its method, period, daily range/count, quote time and original native bar in audit provenance. Snapshot schema and disposable market cache move to version 3; workspace/IndexedDB/export version 3 is unchanged. Daily collection runs last to avoid aligning newer native metadata with an older daily quote. Snapshot validation and live smoke compare daily/weekly/monthly latest closes with the pack quote, and verify current-period volume from its daily rows. These checks address the gap in the initial pack-internal browser assertions.

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { resolve } from 'node:path';
-import { normalizeYahooEvents, normalizeYahooResponse } from '../src/market-data/YahooNormalizer';
+import { normalizeYahooCalendarResponse, normalizeYahooEvents, normalizeYahooResponse } from '../src/market-data/YahooNormalizer';
 import { snapshotSchema } from '../src/market-data/SnapshotSchema';
 import type { SymbolState } from '../src/storage/schema';
 
@@ -63,23 +63,22 @@ async function expectWatchlistQuote(page: Page, symbol: string, price: string) {
 
 function snapshotFromActualFixture(symbol: 'SMCI' | 'NFLX') {
   const fixtureAsOf = Date.now() / 1000;
-  const readFixture = (period: '1d' | '1wk' | '1mo') =>
+  const readFixture = (file: string) =>
     JSON.parse(
       readFileSync(
-        resolve(
-          'tests/fixtures/market',
-          period === '1d' ? `${symbol}.json` : `${symbol}-${period}.json`,
-        ),
+        resolve('tests/fixtures/market', file),
         'utf8',
       ),
     ) as unknown;
-  const dailyRaw = readFixture('1d');
+  const dailyRaw = readFixture(`${symbol}-current-1d.json`);
+  const weeklyRaw = readFixture(`${symbol}-current-1wk.json`);
+  const monthlyRaw = readFixture(`${symbol}-current-1mo.json`);
   const daily = normalizeYahooResponse(dailyRaw, fixtureAsOf, '1D', symbol);
-  const weekly = normalizeYahooResponse(readFixture('1wk'), fixtureAsOf, '1W', symbol);
-  const monthly = normalizeYahooResponse(readFixture('1mo'), fixtureAsOf, '1M', symbol);
+  const weekly = normalizeYahooCalendarResponse(weeklyRaw, dailyRaw, fixtureAsOf, '1W', symbol);
+  const monthly = normalizeYahooCalendarResponse(monthlyRaw, dailyRaw, fixtureAsOf, '1M', symbol);
   if (!daily.quote) throw new Error(`${symbol} fixture has no validated daily quote`);
   return snapshotSchema.parse({
-    version: 2,
+    version: 3,
     symbol,
     generatedAt: fixtureAsOf,
     results: { '1D': daily, '1W': weekly, '1M': monthly },
@@ -336,9 +335,10 @@ test.describe('delayed snapshot source', () => {
       SMCI: snapshotFromActualFixture('SMCI'),
       NFLX: snapshotFromActualFixture('NFLX'),
     };
-    expect(fixtures.SMCI.results['1M']?.bars.at(-1)).toMatchObject({ volume: 120881200 });
-    expect(fixtures.SMCI.results['1M']?.bars.at(-1)?.close).toBeCloseTo(43.46, 2);
-    expect(fixtures.NFLX.results['1M']?.bars.at(-1)?.close).toBeCloseTo(68.69, 2);
+    const nflxPrice = fixtures.NFLX.quote.price.toFixed(2);
+    expect(fixtures.SMCI.results['1W']?.bars.at(-1)).toMatchObject({ close: 44.94, volume: 90284251 });
+    expect(fixtures.SMCI.results['1M']?.bars.at(-1)).toMatchObject({ close: 44.94, volume: 161285951 });
+    expect(fixtures.NFLX.results['1M']?.bars.at(-1)?.close).toBeCloseTo(Number(nflxPrice), 2);
     page.on('pageerror', (error) => runtimeErrors.push(error.message));
     page.on('request', (request) => {
       if (/\/api\//.test(new URL(request.url()).pathname)) apiRequests.push(request.url());
@@ -367,28 +367,30 @@ test.describe('delayed snapshot source', () => {
     await page.getByLabel('Market data source', { exact: true }).selectOption('snapshot');
     await loaded(page);
     await expect(page.locator('.demo-badge')).toHaveText('DELAYED SNAPSHOT');
-    await expect(page.getByTestId('ohlc-header')).toContainText('C 43.46');
-    await expectWatchlistQuote(page, 'SMCI', '43.46');
+    await expect(page.getByTestId('ohlc-header')).toContainText('C 44.94');
+    await expectWatchlistQuote(page, 'SMCI', '44.94');
 
     const weekly = page.getByRole('button', { name: 'Timeframe 1W', exact: true });
     await expect(weekly).toBeEnabled();
     await weekly.click();
     await loaded(page);
-    await expect(page.getByTestId('ohlc-header')).toContainText('C 43.46');
+    await expect(page.getByTestId('ohlc-header')).toContainText('C 44.94');
+    await expect(page.locator('.data-source')).toContainText('本週 K由日 K彙總');
 
     const monthly = page.getByRole('button', { name: 'Timeframe 1M', exact: true });
     await expect(monthly).toBeEnabled();
     await monthly.click();
     await loaded(page);
-    await expect(page.getByTestId('ohlc-header')).toContainText('C 43.46');
+    await expect(page.getByTestId('ohlc-header')).toContainText('C 44.94');
+    await expect(page.locator('.data-source')).toContainText('本月 K由日 K彙總');
 
     await switchSymbol(page, 'NFLX');
-    await expect(page.getByTestId('ohlc-header')).toContainText('C 68.69');
-    await expectWatchlistQuote(page, 'NFLX', '68.69');
+    await expect(page.getByTestId('ohlc-header')).toContainText(`C ${nflxPrice}`);
+    await expectWatchlistQuote(page, 'NFLX', nflxPrice);
     await expect(page.getByLabel('Market data source', { exact: true })).toHaveValue('snapshot');
     await page.getByRole('button', { name: 'Timeframe 1W', exact: true }).click();
     await loaded(page);
-    await expect(page.getByTestId('ohlc-header')).toContainText('C 68.69');
+    await expect(page.getByTestId('ohlc-header')).toContainText(`C ${nflxPrice}`);
     await monthly.click();
     await loaded(page);
 

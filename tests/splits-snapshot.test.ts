@@ -1,18 +1,37 @@
 import 'fake-indexeddb/auto';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vitest';
-import { normalizeYahooEvents, normalizeYahooResponse } from '../src/market-data/YahooNormalizer';
+import { normalizeYahooCalendarResponse, normalizeYahooEvents, normalizeYahooResponse } from '../src/market-data/YahooNormalizer';
 import { SnapshotProvider } from '../src/market-data/SnapshotProvider';
 import { snapshotSchema } from '../src/market-data/SnapshotSchema';
 import { CachedMarketDataProvider } from '../src/market-data/CachedMarketDataProvider';
 import type { MarketDataProvider } from '../src/market-data/MarketDataProvider';
 
 const asOf = Date.parse('2026-10-07T12:00:00Z') / 1000;
-function actual(symbol: string) { return JSON.parse(readFileSync(new URL(`./fixtures/market/${symbol}.json`, import.meta.url), 'utf8')); }
+function actual(fixture: string) { return JSON.parse(readFileSync(new URL(`./fixtures/market/${fixture}.json`, import.meta.url), 'utf8')); }
 function snapshot(symbol = 'SMCI') {
   const raw = actual(symbol);
   const daily = normalizeYahooResponse(raw, asOf, '1D', symbol);
-  return snapshotSchema.parse({ version: 2, symbol, generatedAt: asOf, results: { '1D': daily }, quote: daily.quote, events: normalizeYahooEvents(raw, symbol, asOf) });
+  return snapshotSchema.parse({ version: 3, symbol, generatedAt: asOf, results: { '1D': daily }, quote: daily.quote, events: normalizeYahooEvents(raw, symbol, asOf) });
+}
+function currentSmciSnapshot() {
+  const rawDaily = actual('SMCI-current-1d');
+  const rawWeekly = actual('SMCI-current-1wk');
+  const rawMonthly = actual('SMCI-current-1mo');
+  const generatedAt = Date.parse('2026-10-08T00:26:00Z') / 1000;
+  const daily = normalizeYahooResponse(rawDaily, generatedAt, '1D', 'SMCI');
+  if (!daily.quote) throw new Error('Expected validated SMCI current quote');
+  const weekly = normalizeYahooCalendarResponse(rawWeekly, rawDaily, generatedAt, '1W', 'SMCI');
+  const monthly = normalizeYahooCalendarResponse(rawMonthly, rawDaily, generatedAt, '1M', 'SMCI');
+  return snapshotSchema.parse({
+    version: 3,
+    symbol: 'SMCI',
+    generatedAt,
+    results: { '1D': daily, '1W': weekly, '1M': monthly },
+    quote: daily.quote,
+    events: normalizeYahooEvents(rawDaily, 'SMCI', generatedAt),
+  });
 }
 afterEach(() => vi.unstubAllGlobals());
 
@@ -61,6 +80,115 @@ it.each(['SMCI', 'NFLX'])('retains native %s monthly/weekly aggregates and disca
     expect(result.bars.at(-1)!.volume).toBeGreaterThan(original.indicators.quote[0].volume.at(-1));
     if (timeframe === '1M') expect(new Date(result.bars.at(-1)!.time * 1000).getUTCDate()).toBe(1);
     else expect(new Date(result.bars.at(-1)!.time * 1000).getUTCDay()).toBe(1);
+  }
+});
+
+it('heals the validated missing latest SMCI daily close and rebuilds only current 1W/1M bars from daily OHLCV', () => {
+  const pack = currentSmciSnapshot();
+  const daily = pack.results['1D']!;
+  const weekly = pack.results['1W']!;
+  const monthly = pack.results['1M']!;
+  expect(pack.quote).toMatchObject({ price: 44.94, asOf: Date.parse('2026-10-07T20:00:00Z') / 1000 });
+  expect(daily.bars.at(-1)).toMatchObject({ close: 44.94, volume: 40358151 });
+  expect(daily.normalization?.healedDailyClose).toMatchObject({
+    method: 'validated-regular-market-price',
+    time: daily.bars.at(-1)!.time,
+    quoteAsOf: pack.quote.asOf,
+  });
+  expect(weekly.bars.at(-1)).toMatchObject({ close: 44.94, volume: 90284251 });
+  expect(monthly.bars.at(-1)).toMatchObject({ close: 44.94, volume: 161285951 });
+  expect(weekly.normalization?.currentPeriod).toMatchObject({
+    method: 'daily-ohlcv', timeframe: '1W', periodStart: weekly.bars.at(-1)!.time,
+    lastDailyTime: daily.bars.at(-1)!.time, dailyCount: 3, quoteAsOf: pack.quote.asOf,
+  });
+  expect(monthly.normalization?.currentPeriod).toMatchObject({
+    method: 'daily-ohlcv', timeframe: '1M', periodStart: monthly.bars.at(-1)!.time,
+    lastDailyTime: daily.bars.at(-1)!.time, dailyCount: 5, quoteAsOf: pack.quote.asOf,
+  });
+  expect(monthly.normalization?.currentPeriod?.native?.close).toBeCloseTo(43.46, 2);
+  expect(monthly.normalization?.currentPeriod?.native?.volume).toBe(120881200);
+  expect(snapshotSchema.parse(pack).results['1M']?.normalization?.currentPeriod?.method).toBe('daily-ohlcv');
+  expect(snapshotSchema.safeParse({ ...pack, version: 2 }).success).toBe(false);
+  const mismatchedMonthly = structuredClone(pack);
+  mismatchedMonthly.results['1M']!.bars.at(-1)!.close = 43.46;
+  expect(snapshotSchema.safeParse(mismatchedMonthly).success).toBe(false);
+  const mismatchedDaily = structuredClone(pack);
+  mismatchedDaily.results['1D']!.bars.at(-1)!.close = 43.46;
+  expect(snapshotSchema.safeParse(mismatchedDaily).success).toBe(false);
+});
+
+it('labels snapshot 1W/1M source text only when daily-current-period provenance is present', async () => {
+  const pack = currentSmciSnapshot();
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(pack), { status: 200 })));
+  const provider = new SnapshotProvider('/market/', () => pack.generatedAt * 1000);
+  const weekly = await provider.getBars('SMCI', '1W');
+  const monthly = await provider.getBars('SMCI', '1M');
+  expect(weekly.source).toContain('本週 K由日 K彙總');
+  expect(monthly.source).toContain('本月 K由日 K彙總');
+  const daily = await provider.getBars('SMCI', '1D');
+  expect(daily.source).not.toContain('K由日 K彙總');
+});
+
+it('retries one cached daily proxy payload only when fresh native metadata is newer', async () => {
+  const fetchMock = vi.fn();
+  vi.resetModules();
+  vi.doMock('undici', () => ({
+    fetch: fetchMock,
+    EnvHttpProxyAgent: class { async close() {} },
+  }));
+  try {
+    const { yahooProxy } = await import('../src/market-data/yahooProxy');
+    const plugin = yahooProxy();
+    type Middleware = (req: IncomingMessage, res: ServerResponse, next: () => void) => unknown;
+    let middleware: Middleware | undefined;
+    const server = {
+      middlewares: { use: (handler: unknown) => { middleware = handler as Middleware; } },
+    };
+    const configure = plugin.configureServer;
+    const configureHandler = typeof configure === 'function' ? configure : configure?.handler;
+    configureHandler?.call({} as never, server as never);
+    if (!middleware) throw new Error('Yahoo proxy middleware was not registered');
+    const response = (payload: unknown) => ({ ok: true, status: 200, json: async () => payload });
+    const cachedDaily = actual('SMCI-current-1d');
+    const cachedDailyResult = cachedDaily.chart.result[0];
+    cachedDailyResult.timestamp.pop();
+    for (const values of Object.values(cachedDailyResult.indicators.quote[0])) {
+      if (Array.isArray(values)) values.pop();
+    }
+    cachedDailyResult.meta.regularMarketTime = Date.parse('2026-10-06T20:00:00Z') / 1000;
+    cachedDailyResult.meta.regularMarketPrice = 43.46;
+    fetchMock
+      .mockResolvedValueOnce(response(actual('SMCI-1mo')))
+      .mockResolvedValueOnce(response(cachedDaily))
+      .mockResolvedValueOnce(response(actual('SMCI-current-1wk')))
+      .mockResolvedValueOnce(response(actual('SMCI-current-1d')));
+    const request = async (url: string) => {
+      const result = {
+        statusCode: 200,
+        body: '',
+        headers: {} as Record<string, string>,
+        setHeader(name: string, value: string) { this.headers[name] = value; },
+        end(body: string) { this.body = body; },
+      };
+      await middleware!({ url } as IncomingMessage, result as unknown as ServerResponse, () => {
+        throw new Error('Unexpected Vite middleware next');
+      });
+      return result;
+    };
+    const oldMonthly = await request('/api/yahoo?symbol=SMCI&timeframe=1M');
+    expect(oldMonthly.statusCode).toBe(200);
+    expect(JSON.parse(oldMonthly.body).bars.at(-1).close).toBeCloseTo(43.46, 2);
+    const currentWeekly = await request('/api/yahoo?symbol=SMCI&timeframe=1W');
+    expect(currentWeekly.statusCode).toBe(200);
+    expect(JSON.parse(currentWeekly.body).bars.at(-1)).toMatchObject({ close: 44.94, volume: 90284251 });
+    const urls = fetchMock.mock.calls.map((call: unknown[]) => String(call[0]));
+    expect(urls.map(url => new URL(url).searchParams.get('interval'))).toEqual(['1mo', '1d', '1wk', '1d']);
+    expect(urls[1]).toContain('range=10y');
+    expect(urls[3]).toContain('range=10y');
+    expect(fetchMock.mock.calls[2][1].signal).toBe(fetchMock.mock.calls[3][1].signal);
+  } finally {
+    vi.doUnmock('undici');
+    vi.resetModules();
   }
 });
 

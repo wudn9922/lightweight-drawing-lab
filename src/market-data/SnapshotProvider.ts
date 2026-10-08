@@ -5,7 +5,7 @@ import { MarketDataUnavailableError } from './ProviderErrors';
 /** Same-origin real, delayed snapshots. No CORS proxy, secret, or invented fallback. */
 export class SnapshotProvider implements MarketDataProvider {
   readonly id = 'snapshot';
-  readonly cacheVersion = 'split-basis-v2-calendar-aggregate';
+  readonly cacheVersion = 'split-basis-v3-daily-current-period';
   readonly supportedTimeframes = ['5m', '15m', '30m', '1H', '1D', '1W', '1M'] as const;
   readonly capabilities = { corporateEvents: 'available' } as const;
   private pending = new Map<string, Promise<MarketSnapshot>>();
@@ -39,6 +39,12 @@ export class SnapshotProvider implements MarketDataProvider {
     const age = this.now() / 1000 - generatedAt;
     return `Yahoo 延遲快照 · 拆股已調整 · 行情 ${new Date(asOf * 1000).toLocaleString()} · 快照 ${new Date(generatedAt * 1000).toLocaleString()}${age > 7200 ? ' · 快照超過 2 小時，非即時' : ' · 非即時'}`;
   }
+  private periodSource(source: string, result: NonNullable<MarketSnapshot['results'][Timeframe]>, bars: NonNullable<MarketSnapshot['results'][Timeframe]>['bars']) {
+    const period = result.normalization?.currentPeriod;
+    return period && bars.some(bar => bar.time === period.periodStart)
+      ? `${source} · ${period.timeframe === '1W' ? '本週' : '本月'} K由日 K彙總`
+      : source;
+  }
   async getBars(symbol: string, timeframe: Timeframe, range?: MarketRange, signal?: AbortSignal) {
     if (!this.supportedTimeframes.includes(timeframe as typeof this.supportedTimeframes[number])) throw new Error('Snapshot does not support this timeframe');
     const normalizedRange = normalizeMarketRange(range);
@@ -47,7 +53,8 @@ export class SnapshotProvider implements MarketDataProvider {
     if (!result) throw new MarketDataUnavailableError(`${symbol} ${timeframe} 暫無可靠快照資料。`);
     const bars = filterBarsByRange(result.bars, normalizedRange);
     if (!bars.length) throw new Error('No snapshot bars in requested range');
-    return { ...result, bars, latestBarAt: bars.at(-1)!.time, source: this.source(data.generatedAt, data.quote.asOf) };
+    const source = this.source(data.generatedAt, data.quote.asOf);
+    return { ...result, bars, latestBarAt: bars.at(-1)!.time, source: this.periodSource(source, result, bars) };
   }
   async getQuote(symbol: string, signal?: AbortSignal) {
     const data = await this.load(symbol, signal);

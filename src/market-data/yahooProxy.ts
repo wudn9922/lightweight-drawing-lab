@@ -2,7 +2,7 @@ import type { Plugin } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { normalizeSymbol, timeframes, type Timeframe } from './MarketDataProvider';
 import { fetch as proxyFetch, EnvHttpProxyAgent } from 'undici';
-import { normalizeYahooEvents, normalizeYahooResponse } from './YahooNormalizer';
+import { normalizeYahooCalendarResponse, normalizeYahooEvents, normalizeYahooResponse } from './YahooNormalizer';
 import { isYahooTimeframe, yahooIntervals } from './YahooIntervals';
 /** Local Vite server only. Unofficial free endpoint; no production availability guarantee. */
 export function yahooProxy(): Plugin {
@@ -32,24 +32,51 @@ export function yahooProxy(): Plugin {
               const mapping = yahooIntervals[timeframe! as keyof typeof yahooIntervals];
               return `interval=${mapping.interval}&range=${mapping.range}&includePrePost=false`;
             })();
-        const response = await proxyFetch(
-          `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${query}`,
-          {
-            dispatcher,
-            signal: AbortSignal.timeout(12000),
-            headers: { 'User-Agent': 'Mozilla/5.0 AtlasResearchTerminal/1.0' },
-          },
-        );
-        if (!response.ok) {
-          failureStatus = response.status === 429 ? 429 : response.status >= 500 ? 502 : 422;
-          throw new Error('Yahoo returned ' + response.status);
+        const signal = AbortSignal.timeout(12000);
+        const fetchPayload = async (queryString: string) => {
+          const response = await proxyFetch(
+            `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${queryString}`,
+            { dispatcher, signal, headers: { 'User-Agent': 'Mozilla/5.0 AtlasResearchTerminal/1.0' } },
+          );
+          if (!response.ok) {
+            failureStatus = response.status === 429 ? 429 : response.status >= 500 ? 502 : 422;
+            throw new Error('Yahoo returned ' + response.status);
+          }
+          failureStatus = 422;
+          const payload: unknown = await response.json();
+          failureStatus = 502;
+          return payload;
+        };
+        const payload = await fetchPayload(query);
+        if (eventsRequest) {
+          const asOf = Date.now() / 1000;
+          data = normalizeYahooEvents(payload, symbol, asOf);
+        } else if (timeframe === '1W' || timeframe === '1M') {
+          const rawDailyKey = `${symbol}:raw-daily`;
+          const priorDaily = cache.get(rawDailyKey);
+          const usedCachedDaily = !!priorDaily && Date.now() - priorDaily.at < 60000 && priorDaily.data !== null && priorDaily.data !== undefined;
+          let rawDaily = usedCachedDaily ? priorDaily!.data : null;
+          if (!rawDaily) {
+            rawDaily = await fetchPayload('interval=1d&range=10y&events=div%2Csplits&includePrePost=false');
+            cache.set(rawDailyKey, { at: Date.now(), data: rawDaily });
+          }
+          const asOf = Date.now() / 1000;
+          try {
+            data = normalizeYahooCalendarResponse(payload, rawDaily, asOf, timeframe, symbol);
+          } catch (error) {
+            if (
+              !usedCachedDaily ||
+              !(error instanceof Error) ||
+              error.message !== 'Yahoo daily metadata is older than the native period response'
+            ) throw error;
+            rawDaily = await fetchPayload('interval=1d&range=10y&events=div%2Csplits&includePrePost=false');
+            cache.set(rawDailyKey, { at: Date.now(), data: rawDaily });
+            data = normalizeYahooCalendarResponse(payload, rawDaily, Date.now() / 1000, timeframe, symbol);
+          }
+        } else {
+          const asOf = Date.now() / 1000;
+          data = normalizeYahooResponse(payload, asOf, timeframe, symbol);
         }
-        failureStatus = 422;
-        const payload = await response.json();
-        const asOf = Date.now() / 1000;
-        data = eventsRequest
-          ? normalizeYahooEvents(payload, symbol, asOf)
-          : normalizeYahooResponse(payload, asOf, timeframe, symbol);
         failureStatus = 502;
         cache.set(key, { at: Date.now(), data });
       }
