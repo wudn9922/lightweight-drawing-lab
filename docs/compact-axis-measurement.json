@@ -1,5 +1,5 @@
 {
-  "status": "Corrected glyph-outline measurement recorded; integrated regression passed; visual WebKit readability review pending",
+  "status": "Local width measurement and 694-glyph geometry passed; public iPhone WebKit visual review passed; physical-device UAT pending",
   "generatedAt": "2026-10-08T09:59:51.414Z",
   "measurementTimestamp": "2026-10-08T09:59:51.414Z",
   "method": "Public createChart, addSeries(CandlestickSeries), createPriceLine, and priceScale(\"right\").width() APIs on an offscreen 640×400 chart. A fresh chart is created for every variant and price sample to avoid width carryover.",
@@ -40,7 +40,23 @@
       "/tmp/atlas-axis-corrected-iphone.png"
     ],
     "physicalDeviceUAT": "PENDING",
-    "publicDeploymentVerification": "NOT VERIFIED; this was a localhost preview."
+    "publicDeploymentVerification": {
+      "status": "PASS",
+      "sourceCommit": "3feb6337aeab4e686c0f61e259bece7250be3d40",
+      "actionsRun": "37785146220",
+      "deploymentCompletedAt": "2026-10-08T13:36:11Z",
+      "httpEvidence": "docs/taiwan-financial-live-http.json",
+      "httpCheckedAt": "2026-10-08T13:38:04.608649+00:00",
+      "browserEvidence": "docs/taiwan-financial-live-browser.json",
+      "browserPassedAt": "2026-10-08T13:37:56.193Z",
+      "scope": "Public GitHub Pages iPhone WebKit smoke; not physical-device UAT.",
+      "review": "Root inspected the public chart and financial-panel screenshots. Price-axis values including 2550 and 2600 and the date labels appeared coherent.",
+      "screenshots": [
+        "/tmp/atlas-tw-live-chart.png",
+        "/tmp/atlas-sec-live-panel.png"
+      ],
+      "physicalDeviceUAT": "PENDING"
+    }
   },
   "fontSize": 11,
   "pricePrecision": 2,
