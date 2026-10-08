@@ -6,6 +6,10 @@ import { once } from 'node:events';
 import { resolve } from 'node:path';
 import { normalizeYahooCalendarResponse, normalizeYahooEvents, normalizeYahooResponse } from '../src/market-data/YahooNormalizer';
 import { snapshotSchema } from '../src/market-data/SnapshotSchema';
+import {
+  financialSnapshotSchema,
+  type FinancialSnapshot,
+} from '../src/fundamentals/FinancialSnapshotSchema';
 import type { SymbolState } from '../src/storage/schema';
 
 const base = '/lightweight-drawing-lab/';
@@ -163,7 +167,7 @@ test('project-path PWA preserves scope, drawings, isolated MAs and portable back
     expect((await page.request.get(url)).ok()).toBe(true);
   }
   await expect(page.locator('.static-hosting-note')).toHaveText(
-    'GitHub Pages：延遲快照、Demo、畫線及指標可用；即時 Yahoo 與 SEC 財報需要 backend，本頁不可用。',
+    'GitHub Pages：延遲行情與 SEC 財報快照可用，均非即時；即時 Yahoo 仍需 backend。台股財報尚未提供。',
   );
   await expect(page.locator('.static-hosting-note')).toBeVisible();
   await expect(
@@ -236,9 +240,42 @@ test('project-path PWA preserves scope, drawings, isolated MAs and portable back
   await loaded(page);
   await expect(page.locator('.demo-badge')).toHaveText('DELAYED SNAPSHOT');
   expect((await savedSymbol(page, 'AAPL'))?.drawings[0].locked).toBe(true);
+  let aaplFinancialSnapshot: FinancialSnapshot | undefined;
+  try {
+    const response = await page.request.get(
+      new URL('financial-data/AAPL.json', page.url()).href,
+    );
+    if (response.ok()) {
+      const parsed = financialSnapshotSchema.safeParse(await response.json());
+      if (parsed.success && parsed.data.symbol === 'AAPL') aaplFinancialSnapshot = parsed.data;
+    }
+  } catch {
+    // The unavailable branch below covers a missing same-origin pack.
+  }
   await openPanel(page, 'financials');
-  await expect(page.getByTestId('financial-panel')).toContainText('SEC 財報需要 backend');
-  await expect(page.getByTestId('financial-panel')).not.toContainText('ACTUAL');
+  const financialPanel = page.getByTestId('financial-panel');
+  if (aaplFinancialSnapshot) {
+    const latestQuarter = aaplFinancialSnapshot.quarterly[0]!;
+    const fiscalLabel = `FY${latestQuarter.fiscalYear}${latestQuarter.fiscalQuarter ? ` Q${latestQuarter.fiscalQuarter}` : ''}`;
+    await expect(financialPanel.locator('.financial-provenance-note')).toContainText(
+      'SEC snapshot',
+    );
+    await expect(financialPanel.locator('.financial-provenance-note')).toContainText(
+      'Latest included filing:',
+    );
+    await expect(financialPanel.locator('.financial-filing').first()).toContainText(
+      `${aaplFinancialSnapshot.issuerName} · SEC CIK ${aaplFinancialSnapshot.cik}`,
+    );
+    const fiscalPeriod = financialPanel.getByLabel('Fiscal period', { exact: true });
+    await expect(fiscalPeriod).toHaveValue(latestQuarter.periodEnd);
+    await expect(
+      fiscalPeriod.locator(`option[value="${latestQuarter.periodEnd}"]`),
+    ).toHaveText(`${fiscalLabel} · ${latestQuarter.periodEnd}`);
+  } else {
+    await expect(financialPanel).toContainText('AAPL SEC 財報快照目前不可用');
+    await expect(financialPanel).toContainText('K 線與 drawing 可繼續使用');
+    await expect(financialPanel).not.toContainText('ACTUAL');
+  }
   await closePanel(page);
   const downloadEvent = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export settings', exact: true }).click();

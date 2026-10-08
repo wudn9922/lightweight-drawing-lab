@@ -30,7 +30,6 @@ import { DemoProvider } from '../market-data/DemoProvider';
 import { YahooProvider } from '../market-data/YahooProvider';
 import { SnapshotProvider } from '../market-data/SnapshotProvider';
 import {
-  normalizeSymbol,
   timeframes,
   type Quote,
   type BarResult,
@@ -61,6 +60,8 @@ import type { StrategyResult } from '../strategy';
 import { errorLog, reportError } from '../errors/UserErrors';
 import { STATIC_HOSTING } from './HostingMode';
 import { legacyVolumeEnabled } from '../storage/schema';
+import { getMarketProfile } from '../market-data/MarketProfile';
+import { loadSymbolCatalog, resolveSymbolInput, searchSymbolCatalog, type SymbolCatalogEntry } from '../market-data/SymbolCatalog';
 type Panel = 'indicators' | 'drawings' | 'financials' | 'backtest' | 'alerts' | 'settings';
 const store = new AppStore();
 const mobileMedia = window.matchMedia('(max-width:1099px)');
@@ -74,7 +75,7 @@ const providers = {
   yahoo: STATIC_HOSTING ? new YahooProvider() : new CachedMarketDataProvider(new YahooProvider()),
 };
 const staticHostingText =
-  'GitHub Pages：延遲快照、Demo、畫線及指標可用；即時 Yahoo 與 SEC 財報需要 backend，本頁不可用。';
+  'GitHub Pages：延遲行情與 SEC 財報快照可用，均非即時；即時 Yahoo 仍需 backend。台股財報尚未提供。';
 const demoDataText = 'DEMO 價格為模擬資料，並非市場行情。';
 const supportsTimeframe = (
   provider: { supportedTimeframes: readonly Timeframe[] },
@@ -107,6 +108,35 @@ export function App() {
     [help, setHelp] = useState(false),
     [drawingPickerOpen, setDrawingPickerOpen] = useState(false),
     [reloadToken, setReloadToken] = useState(0);
+  const [catalogEntries, setCatalogEntries] = useState<SymbolCatalogEntry[]>([]);
+  const [symbolTimeframes, setSymbolTimeframes] = useState<{ key: string; values: readonly Timeframe[] } | null>(null);
+  const market = getMarketProfile(symbol);
+  const marketLabel = market.market === 'TW' ? (market.exchange === 'TWSE' ? '台股上市' : '台股上櫃') : 'NASDAQ / NYSE';
+  const companyName = companies[symbol] ?? catalogEntries.find((entry) => entry.symbol === symbol)?.name;
+  const timeframeKey = `${state.app.provider}:${symbol}`;
+  const availableTimeframes = symbolTimeframes?.key === timeframeKey ? symbolTimeframes.values : providers[state.app.provider].supportedTimeframes;
+  useEffect(() => {
+    const abort = new AbortController();
+    void loadSymbolCatalog(abort.signal).then(setCatalogEntries).catch(() => {
+      // Explicit exchange suffixes and US navigation remain usable if the directory is unavailable.
+    });
+    return () => abort.abort();
+  }, []);
+  useEffect(() => {
+    if (!state.ready) return;
+    const abort = new AbortController();
+    const provider: MarketDataProvider = providers[state.app.provider];
+    setSymbolTimeframes(null);
+    if (provider.getSymbolTimeframes) {
+      void provider.getSymbolTimeframes(symbol, abort.signal).then((values) => {
+        if (!abort.signal.aborted) setSymbolTimeframes({ key: timeframeKey, values });
+      }).catch(() => {
+        // The chart's provider error explains unavailable symbols; never invent intervals.
+        if (!abort.signal.aborted) setSymbolTimeframes({ key: timeframeKey, values: [] });
+      });
+    }
+    return () => abort.abort();
+  }, [state.ready, symbol, state.app.provider, timeframeKey, reloadToken]);
   const right = state.app.workspace.rightOpen,
     rightTab = state.app.workspace.rightTab;
   const setRight = (rightOpen: boolean) =>
@@ -347,10 +377,11 @@ export function App() {
   }, []);
   const selectSymbol = (value: string) => {
     try {
-      const symbol = normalizeSymbol(value);
+      const symbol = resolveSymbolInput(value, catalogEntries);
       engine.current?.controller?.cancel();
       store.updateApp({
         activeSymbol: symbol,
+        ...(getMarketProfile(symbol).market === 'TW' && store.getSnapshot().app.provider === 'demo' ? { provider: 'snapshot' as const } : {}),
         recentSymbols: [
           symbol,
           ...store.getSnapshot().app.recentSymbols.filter((x) => x !== symbol),
@@ -358,7 +389,7 @@ export function App() {
       });
       setSheet(null);
       setSearch('');
-      setNotice('');
+      setNotice(getMarketProfile(symbol).market === 'TW' ? '台股行情使用 TWD 延遲快照；尚未收錄的股票可在有 backend 的環境使用 Yahoo。' : '');
     } catch (e) {
       setNotice(String(e));
     }
@@ -599,7 +630,7 @@ export function App() {
           {drawingPanel}
           {measurement && (
             <p className="small" aria-label="Measurement details">
-              Price Δ ${measurement.priceDelta.toFixed(2)} ·{' '}
+              Price Δ {market.currency} {measurement.priceDelta.toFixed(2)} ·{' '}
               {measurement.pricePercent === null
                 ? 'N/A'
                 : measurement.pricePercent.toFixed(2) + '%'}
@@ -623,7 +654,7 @@ export function App() {
           onRecords={onFinancialRecords}
         />
       ) : panel === 'backtest' ? (
-        <BacktestPanel symbol={symbol} timeframe={tf} result={result} onResult={onStrategy} />
+        <BacktestPanel symbol={symbol} timeframe={tf} market={market} result={result} onResult={onStrategy} />
       ) : panel === 'alerts' ? (
         <AlertPanel store={store} symbol={symbol} timeframe={tf} drawings={activeDrawings} />
       ) : (
@@ -641,6 +672,7 @@ export function App() {
       symbols={state.app.watchlist}
       active={symbol}
       quotes={quotes}
+      catalogEntries={catalogEntries}
       onSelect={selectSymbol}
       onChange={(watchlist) => store.updateApp({ watchlist })}
     />
@@ -675,7 +707,7 @@ export function App() {
           <input
             aria-label="Symbol search"
             list="symbol-options"
-            placeholder="搜尋股票，例如 AAPL"
+            placeholder="搜尋 AAPL / 台股 2330"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => {
@@ -689,8 +721,11 @@ export function App() {
           <datalist id="symbol-options">
             {[...new Set([...state.app.watchlist, ...state.app.recentSymbols])].map((t) => (
               <option key={t} value={t}>
-                {companies[t] ?? t}
+                {companies[t] ?? catalogEntries.find((entry) => entry.symbol === t)?.name ?? t}
               </option>
+            ))}
+            {searchSymbolCatalog(search, catalogEntries).filter((entry) => !state.app.watchlist.includes(entry.symbol) && !state.app.recentSymbols.includes(entry.symbol)).map((entry) => (
+              <option key={entry.symbol} value={entry.symbol}>{entry.name} · {entry.market}</option>
             ))}
           </datalist>
           <kbd>↵</kbd>
@@ -727,7 +762,7 @@ export function App() {
             <div className="symbol-title">
               <b data-testid="active-symbol">{symbol}</b>
               <ChevronRight size={13} />
-              <span>{companies[symbol] ?? 'US Equity'}</span>
+              <span>{companyName ?? marketLabel}</span>
             </div>
             <button
               ref={drawingLauncherRef}
@@ -746,7 +781,7 @@ export function App() {
             </button>
             <div className="timeframe-buttons" ref={timeframesRef}>
               {timeframes
-                .filter((t) => supportsTimeframe(providers[state.app.provider], t))
+                .filter((t) => availableTimeframes.includes(t))
                 .map((t) => (
                   <button
                     key={t}
@@ -820,7 +855,7 @@ export function App() {
                 <div className="chart-heading">
                   <span className="status-dot" />
                   <b>{symbol}</b>
-                  <span>· {tf} · NASDAQ / NYSE</span>
+                  <span>· {tf} · {marketLabel} · {market.currency}</span>
                   <span className="demo-badge">
                     {state.app.provider === 'demo'
                       ? 'SIMULATED'
@@ -954,7 +989,7 @@ export function App() {
           )}
           <div className="events-source">
             {eventsStatus}
-            {!STATIC_HOSTING && ' · SEC Filing markers available when Financials loads'}
+            {market.market === 'US' && ' · SEC Filing markers available when Financials loads'}
           </div>
         </main>
         {right && !mobile && (

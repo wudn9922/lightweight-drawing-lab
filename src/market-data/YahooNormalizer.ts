@@ -7,7 +7,12 @@ import {
   type CorporateEvent,
   type CorporateEventsResult,
   type Timeframe,
+  getMarketProfile,
+  calendarPeriodStart,
+  isSessionCloseObservation,
+  SESSION_CLOSE_SOURCE_QUALIFIER,
 } from './MarketDataProvider';
+import { calendarDate, type MarketProfile } from './MarketProfile';
 const prices = z.array(z.number().finite().nullable());
 const dividendSchema = z.object({
   amount: z.number().finite(),
@@ -27,6 +32,8 @@ const responseSchema = z.object({
           meta: z.object({
             symbol: z.string(),
             currency: z.string().optional(),
+            exchangeName: z.string().optional(),
+            exchangeTimezoneName: z.string().optional(),
             regularMarketPrice: z.number().finite().positive().optional(),
             regularMarketTime: z.number().int().positive().optional(),
           }).optional(),
@@ -59,6 +66,12 @@ const eventsResponseSchema = z.object({
               splits: z.record(z.string(), splitSchema).optional(),
             })
             .optional(),
+          meta: z.object({
+            symbol: z.string().optional(),
+            currency: z.string().optional(),
+            exchangeName: z.string().optional(),
+            exchangeTimezoneName: z.string().optional(),
+          }).optional(),
         }),
       )
       .nullable(),
@@ -66,22 +79,10 @@ const eventsResponseSchema = z.object({
 });
 export const YAHOO_SOURCE = 'Yahoo unofficial prototype · delayed / as-of data';
 
-function utcDate(time: number): string {
-  return new Date(time * 1000).toISOString().slice(0, 10);
-}
-
-function calendarPeriodStart(time: number, timeframe: '1W' | '1M'): number {
-  const date = new Date(time * 1000);
-  if (timeframe === '1M') return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1) / 1000;
-  const daysSinceMonday = (date.getUTCDay() + 6) % 7;
-  return Date.UTC(
-    date.getUTCFullYear(),
-    date.getUTCMonth(),
-    date.getUTCDate() - daysSinceMonday,
-  ) / 1000;
-}
-
-function nextCalendarPeriodStart(start: number, timeframe: '1W' | '1M'): number {
+function nextCalendarPeriodStart(start: number, timeframe: '1W' | '1M', market: MarketProfile): number {
+  if (market.market === 'TW') {
+    return calendarPeriodStart(start + (timeframe === '1W' ? 8 : 32) * 86400, timeframe, market);
+  }
   const date = new Date(start * 1000);
   return timeframe === '1M'
     ? Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1) / 1000
@@ -98,10 +99,20 @@ export function normalizeYahooResponse(raw: unknown, asOf = Date.now() / 1000, t
   const result = responseSchema.parse(raw).chart.result?.[0],
     q = result?.indicators.quote[0];
   if (!result || !q) throw new Error('No data');
-  if (expectedSymbol && result.meta?.symbol !== normalizeSymbol(expectedSymbol)) throw new Error('Yahoo response symbol mismatch');
-  if (result.meta?.currency && result.meta.currency !== 'USD') throw new Error('Only USD market data is supported');
+  const canonicalSymbol = expectedSymbol ? normalizeSymbol(expectedSymbol) : result.meta?.symbol ? normalizeSymbol(result.meta.symbol) : undefined;
+  if (expectedSymbol && result.meta?.symbol !== canonicalSymbol) throw new Error('Yahoo response symbol mismatch');
+  const market = getMarketProfile(canonicalSymbol);
+  if (market.market === 'TW') {
+    if (result.meta?.currency !== market.currency) throw new Error('Yahoo Taiwan response requires TWD currency metadata');
+    if (result.meta?.exchangeTimezoneName !== market.timezone) throw new Error('Yahoo Taiwan response requires Asia/Taipei timezone metadata');
+  } else if (result.meta?.currency && result.meta.currency !== market.currency) {
+    throw new Error('Only USD market data is supported');
+  }
   const byTime = new Map<number, Bar>();
   const originalTimes = new Map<number, number>();
+  const sessionCloseEligibility = new Map<number, boolean>();
+  const canMarkSessionClose = market.market === 'TW' &&
+    ['5m', '15m', '30m', '1H', '4H'].includes(timeframe ?? '');
   const latestDailyTime = timeframe === '1D' ? maximumTimestamp(result.timestamp) : 0;
   let latestDailyIndex = -1;
   if (timeframe === '1D') {
@@ -138,7 +149,7 @@ export function normalizeYahooResponse(raw: unknown, asOf = Date.now() / 1000, t
         metaPrice > 0 &&
         metaTime >= rowTime &&
         metaTime <= asOf + 300 &&
-        utcDate(metaTime) === utcDate(rowTime) &&
+        calendarDate(metaTime, market) === calendarDate(rowTime, market) &&
         Number.isFinite(open) &&
         Number.isFinite(high) &&
         Number.isFinite(low) &&
@@ -170,12 +181,9 @@ export function normalizeYahooResponse(raw: unknown, asOf = Date.now() / 1000, t
       throw new Error(`Invalid Yahoo OHLCV values at ${result.timestamp[i]}`);
     }
     const originalTime = result.timestamp[i];
-    const date = new Date(originalTime * 1000);
-    const time = timeframe === '1M'
-      ? Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1) / 1000
-      : timeframe === '1W'
-        ? Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - (date.getUTCDay() + 6) % 7) / 1000
-        : originalTime;
+    const time = timeframe === '1M' || timeframe === '1W'
+      ? calendarPeriodStart(originalTime, timeframe, market)
+      : originalTime;
     // Native weekly/monthly responses append a latest-session row after the
     // aggregate. Keep the earliest source timestamp for a period: summing or
     // replacing it would double count or lose the aggregate's OHLC/volume.
@@ -189,9 +197,16 @@ export function normalizeYahooResponse(raw: unknown, asOf = Date.now() / 1000, t
       close,
       volume,
     });
+    sessionCloseEligibility.set(
+      time,
+      canMarkSessionClose && rawVolume === 0 && isSessionCloseObservation({ time, open, high, low, close, volume }, market),
+    );
   }
   const bars = [...byTime.values()].sort((a, b) => a.time - b.time);
   if (!bars.length) throw new Error('No valid bars');
+  const sessionCloseObservations = bars
+    .filter(bar => sessionCloseEligibility.get(bar.time))
+    .map(bar => bar.time);
   // Yahoo's quote OHLC is already split-adjusted. adjclose also includes dividend
   // adjustment and is intentionally not used. Never divide by events.splits again.
   const verifiedBasis = !!result.meta;
@@ -202,16 +217,19 @@ export function normalizeYahooResponse(raw: unknown, asOf = Date.now() / 1000, t
   const useMeta = !!metaTime && !!metaPrice && metaTime >= latest.time && metaTime <= asOf + 300;
   const quoteTime = useMeta ? metaTime : latest.time;
   const quotePrice = useMeta ? metaPrice : latest.close;
-  const sameDay = new Date(quoteTime * 1000).toISOString().slice(0, 10) === new Date(latest.time * 1000).toISOString().slice(0, 10);
+  const sameDay = calendarDate(quoteTime, market) === calendarDate(latest.time, market);
   const previous = sameDay ? bars.at(-2)?.close : latest.close;
   const quote = meta && timeframe === '1D' && previous && previous > 0 ? {
-    symbol: normalizeSymbol(meta.symbol), price: quotePrice, change: quotePrice - previous,
+    symbol: canonicalSymbol ?? normalizeSymbol(meta.symbol), price: quotePrice, change: quotePrice - previous,
     changePercent: (quotePrice / previous - 1) * 100, asOf: quoteTime,
     source: YAHOO_SOURCE, dataState: 'delayed' as const, retrievedAt: asOf, cacheStatus: 'fresh' as const,
+    market,
   } : undefined;
+  sessionCloseObservations.sort((a, b) => a - b);
+  const hasSessionCloseObservations = sessionCloseObservations.length > 0;
   return {
     bars,
-    source: YAHOO_SOURCE,
+    source: hasSessionCloseObservations ? `${YAHOO_SOURCE} · ${SESSION_CLOSE_SOURCE_QUALIFIER}` : YAHOO_SOURCE,
     session: 'regular',
     delayed: true,
     adjusted: verifiedBasis,
@@ -222,6 +240,8 @@ export function normalizeYahooResponse(raw: unknown, asOf = Date.now() / 1000, t
     latestBarAt: bars.at(-1)!.time,
     dataState: 'delayed',
     cacheStatus: 'fresh',
+    market,
+    ...(hasSessionCloseObservations ? { sessionCloseObservations } : {}),
   };
 }
 
@@ -236,10 +256,12 @@ function verifyCurrentMeta(
   expectedSymbol: string,
   asOf: number,
   label: 'native' | 'daily',
+  market: MarketProfile,
 ): VerifiedCurrentMeta {
   const meta = result.meta;
   if (!meta || meta.symbol !== expectedSymbol) throw new Error(`Yahoo ${label} response symbol mismatch`);
-  if (meta.currency !== 'USD') throw new Error('Yahoo current-period data requires USD currency metadata');
+  if (meta.currency !== market.currency) throw new Error(`Yahoo current-period data requires ${market.currency} currency metadata`);
+  if (market.market === 'TW' && meta.exchangeTimezoneName !== market.timezone) throw new Error('Yahoo current-period data requires Asia/Taipei timezone metadata');
   const time = meta.regularMarketTime,
     price = meta.regularMarketPrice,
     latestRowTime = maximumTimestamp(result.timestamp);
@@ -252,7 +274,7 @@ function verifyCurrentMeta(
     price <= 0 ||
     time < latestRowTime ||
     time > asOf + 300 ||
-    (label === 'daily' && utcDate(time) !== utcDate(latestRowTime))
+    (label === 'daily' && calendarDate(time, market) !== calendarDate(latestRowTime, market))
   ) {
     throw new Error(`Yahoo ${label} market metadata is stale or inconsistent`);
   }
@@ -278,18 +300,19 @@ export function normalizeYahooCalendarResponse(
 
   const native = normalizeYahooResponse(rawNative, asOf, timeframe, symbol);
   const daily = normalizeYahooResponse(rawDaily, asOf, '1D', symbol);
+  const market = native.market ?? getMarketProfile(symbol);
   if (native.priceBasis !== 'split-adjusted' || daily.priceBasis !== 'split-adjusted') {
     throw new Error('Yahoo current-period data requires verified split-adjusted prices');
   }
-  const nativeMeta = verifyCurrentMeta(nativeResult, symbol, asOf, 'native');
-  const dailyMeta = verifyCurrentMeta(dailyResult, symbol, asOf, 'daily');
+  const nativeMeta = verifyCurrentMeta(nativeResult, symbol, asOf, 'native', market);
+  const dailyMeta = verifyCurrentMeta(dailyResult, symbol, asOf, 'daily', market);
   if (dailyMeta.time < nativeMeta.time) {
     throw new Error('Yahoo daily metadata is older than the native period response');
   }
   if (dailyMeta.time === nativeMeta.time && Math.abs(dailyMeta.price - nativeMeta.price) > 0.01) {
     throw new Error('Yahoo daily and native quotes disagree at the same market time');
   }
-  if (utcDate(dailyMeta.latestRowTime) !== utcDate(dailyMeta.time)) {
+  if (calendarDate(dailyMeta.latestRowTime, market) !== calendarDate(dailyMeta.time, market)) {
     throw new Error('Yahoo latest daily row does not match the quote session date');
   }
   const latestDailyBar = daily.bars.at(-1);
@@ -301,8 +324,8 @@ export function normalizeYahooCalendarResponse(
     throw new Error('Yahoo latest daily close does not match the verified quote');
   }
 
-  const periodStart = calendarPeriodStart(dailyMeta.time, timeframe);
-  const periodEnd = nextCalendarPeriodStart(periodStart, timeframe);
+  const periodStart = calendarPeriodStart(dailyMeta.time, timeframe, market);
+  const periodEnd = nextCalendarPeriodStart(periodStart, timeframe, market);
   const dailyQuote = dailyResult.indicators.quote[0];
   const currentDailyRows = dailyResult.timestamp
     .map((time, index) => ({ time, index }))
@@ -316,9 +339,13 @@ export function normalizeYahooCalendarResponse(
   const seenSessionDates = new Set<string>();
   const currentBars: Bar[] = [];
   for (const { time, index } of currentDailyRows) {
-    const sessionDate = utcDate(time);
-    if (seenSessionDates.has(sessionDate)) throw new Error('Yahoo daily response has duplicate UTC session dates');
-    seenSessionDates.add(sessionDate);
+    const marketDate = calendarDate(time, market);
+    if (seenSessionDates.has(marketDate)) {
+      throw new Error(market.market === 'TW'
+        ? 'Yahoo daily response has duplicate local session dates'
+        : 'Yahoo daily response has duplicate UTC session dates');
+    }
+    seenSessionDates.add(marketDate);
 
     const open = dailyQuote.open[index],
       high = dailyQuote.high[index],
@@ -372,7 +399,7 @@ export function normalizeYahooCalendarResponse(
   const nativeQuote = nativeResult.indicators.quote[0];
   const nativeBucketSource = nativeResult.timestamp
     .map((time, index) => ({ time, index }))
-    .filter(({ time }) => calendarPeriodStart(time, timeframe) === periodStart)
+    .filter(({ time }) => calendarPeriodStart(time, timeframe, market) === periodStart)
     .sort((a, b) => a.time - b.time)[0];
   const nativeCandidate = native.bars.find((bar) => bar.time === periodStart);
   const nativeOpen = nativeBucketSource ? nativeQuote.open[nativeBucketSource.index] : undefined;
@@ -381,7 +408,7 @@ export function normalizeYahooCalendarResponse(
   const nativeClose = nativeBucketSource ? nativeQuote.close[nativeBucketSource.index] : undefined;
   const hasNativeOpeningAggregate =
     nativeBucketSource !== undefined &&
-    utcDate(nativeBucketSource.time) === utcDate(periodStart) &&
+    calendarDate(nativeBucketSource.time, market) === calendarDate(periodStart, market) &&
     typeof nativeOpen === 'number' &&
     typeof nativeHigh === 'number' &&
     typeof nativeLow === 'number' &&
@@ -421,7 +448,7 @@ export function normalizeYahooCalendarResponse(
     ...native.bars.filter((bar) => bar.time !== periodStart),
     currentPeriodBar,
   ].sort((a, b) => a.time - b.time);
-  const periodLabel = `${utcDate(firstDaily.time)}–${utcDate(lastDaily.time)}, ${currentBars.length} daily bars`;
+  const periodLabel = `${calendarDate(firstDaily.time, market)}–${calendarDate(lastDaily.time, market)}, ${currentBars.length} daily bars`;
   const normalization: BarNormalization = {
     ...native.normalization,
     ...daily.normalization,
@@ -456,6 +483,16 @@ export function normalizeYahooEvents(
   const result = eventsResponseSchema.parse(raw).chart.result?.[0];
   if (!result) throw new Error('No corporate event data');
   const normalizedSymbol = normalizeSymbol(symbol);
+  const market = getMarketProfile(normalizedSymbol);
+  if (result.meta?.symbol && normalizeSymbol(result.meta.symbol) !== normalizedSymbol) {
+    throw new Error('Yahoo corporate event response symbol mismatch');
+  }
+  if (market.market === 'TW') {
+    if (result.meta?.currency !== market.currency) throw new Error('Yahoo Taiwan events require TWD currency metadata');
+    if (result.meta?.exchangeTimezoneName !== market.timezone) throw new Error('Yahoo Taiwan events require Asia/Taipei timezone metadata');
+  } else if (result.meta?.currency && result.meta.currency !== market.currency) {
+    throw new Error('Yahoo events currency does not match the US market');
+  }
   const events: CorporateEvent[] = [];
   for (const dividend of Object.values(result.events?.dividends ?? {})) {
     const event = {

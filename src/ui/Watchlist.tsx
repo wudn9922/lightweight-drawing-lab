@@ -1,7 +1,8 @@
 import { ChevronUp, ChevronDown, X, Plus, Search, Settings2 } from 'lucide-react';
 import { useState } from 'react';
 import type { Quote } from '../market-data/MarketDataProvider';
-import { normalizeSymbol } from '../market-data/MarketDataProvider';
+import { getMarketProfile } from '../market-data/MarketProfile';
+import { resolveSymbolInput, type SymbolCatalogEntry } from '../market-data/SymbolCatalog';
 import { IconButton } from './IconButton';
 export const companies: Record<string, string> = {
   AAPL: 'Apple Inc.',
@@ -20,8 +21,10 @@ export function Watchlist({
   onSelect,
   onChange,
   quotes = {},
+  catalogEntries = [],
 }: {
-  quotes?: Record<string,Quote>;
+  quotes?: Record<string, Quote>;
+  catalogEntries?: readonly SymbolCatalogEntry[];
   symbols: string[];
   active: string;
   onSelect: (symbol: string) => void;
@@ -55,7 +58,7 @@ export function Watchlist({
           onSubmit={(e) => {
             e.preventDefault();
             try {
-              const s = normalizeSymbol(input);
+              const s = resolveSymbolInput(input, catalogEntries);
               if (!symbols.includes(s)) onChange([...symbols, s]);
               setInput('');
               setError('');
@@ -84,45 +87,74 @@ export function Watchlist({
         </IconButton>
       </div>
       <div className={`watchlist-rows ${manage ? 'managing' : ''}`}>
-        {symbols.map((symbol, index) => (
-          <div key={symbol} className={`watch-row ${symbol === active ? 'selected' : ''}`}>
-            <button
-              className="watch-symbol"
-              aria-label={`Select ${symbol}`}
-              onClick={() => onSelect(symbol)}
-            >
-              <span className={`ticker-icon ticker-${index % 4}`}>{symbol.slice(0, 1)}</span>
-              <span>
-                <b>{symbol}</b>
-                <small>{companies[symbol] ?? 'US listed equity'}</small>
-              </span>
-              {quotes[symbol] && <span className="watch-quote" title={`${quotes[symbol].source ?? ''} · last bar ${new Date(quotes[symbol].asOf*1000).toLocaleString()}`}>{quotes[symbol].price.toFixed(2)}<small>{quotes[symbol].changePercent.toFixed(2)}% · {quotes[symbol].dataState === 'simulated' ? 'SIM' : 'delayed'}{quotes[symbol].cacheStatus === 'stale' ? ' · STALE' : ''}</small></span>}
-              {symbol === active && <span className="active-dot" />}
-            </button>
-            <div className="watch-actions">
-              <IconButton
-                label={`Move ${symbol} up`}
-                disabled={index === 0}
-                onClick={() => reorder(index, -1)}
+        {symbols.map((symbol, index) => {
+          const quote = quotes[symbol];
+          const profile = quote?.market ?? getMarketProfile(symbol);
+          const entry = catalogEntries.find((item) => item.symbol === symbol);
+          const exchange = entry?.market ?? profile.exchange;
+          const company =
+            entry?.name ??
+            companies[symbol] ??
+            (profile.market === 'TW'
+              ? `Taiwan listed equity · ${exchange} · ${profile.currency}`
+              : 'US listed equity');
+          const companyLabel =
+            entry && profile.market === 'TW'
+              ? `${company} · ${exchange} · ${profile.currency}`
+              : company;
+
+          return (
+            <div key={symbol} className={`watch-row ${symbol === active ? 'selected' : ''}`}>
+              <button
+                className="watch-symbol"
+                aria-label={`Select ${symbol}`}
+                onClick={() => onSelect(symbol)}
               >
-                <ChevronUp size={13} />
-              </IconButton>
-              <IconButton
-                label={`Move ${symbol} down`}
-                disabled={index === symbols.length - 1}
-                onClick={() => reorder(index, 1)}
-              >
-                <ChevronDown size={13} />
-              </IconButton>
-              <IconButton
-                label={`Remove ${symbol} from watchlist`}
-                onClick={() => onChange(symbols.filter((s) => s !== symbol))}
-              >
-                <X size={13} />
-              </IconButton>
+                <span className={`ticker-icon ticker-${index % 4}`}>{symbol.slice(0, 1)}</span>
+                <span>
+                  <b>{symbol}</b>
+                  <small>{companyLabel}</small>
+                </span>
+                {quote && (
+                  <span
+                    className="watch-quote"
+                    title={`${quote.source ?? ''} · last bar ${new Date(quote.asOf * 1000).toLocaleString()}`}
+                  >
+                    {profile.currency} {quote.price.toFixed(2)}
+                    <small>
+                      {quote.changePercent.toFixed(2)}% ·{' '}
+                      {quote.dataState === 'simulated' ? 'SIM' : 'delayed'}
+                      {quote.cacheStatus === 'stale' ? ' · STALE' : ''}
+                    </small>
+                  </span>
+                )}
+                {symbol === active && <span className="active-dot" />}
+              </button>
+              <div className="watch-actions">
+                <IconButton
+                  label={`Move ${symbol} up`}
+                  disabled={index === 0}
+                  onClick={() => reorder(index, -1)}
+                >
+                  <ChevronUp size={13} />
+                </IconButton>
+                <IconButton
+                  label={`Move ${symbol} down`}
+                  disabled={index === symbols.length - 1}
+                  onClick={() => reorder(index, 1)}
+                >
+                  <ChevronDown size={13} />
+                </IconButton>
+                <IconButton
+                  label={`Remove ${symbol} from watchlist`}
+                  onClick={() => onChange(symbols.filter((s) => s !== symbol))}
+                >
+                  <X size={13} />
+                </IconButton>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
       <div className="watch-footer">
         <span className="status-dot" />

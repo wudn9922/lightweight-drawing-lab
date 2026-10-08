@@ -1,5 +1,19 @@
+import {
+  CANONICAL_SYMBOL_REGEX,
+  getMarketProfile,
+  isCanonicalSymbol,
+  calendarPeriodStart,
+  marketProfileSchema,
+  sessionDate,
+  isSessionCloseObservation,
+  SESSION_CLOSE_SOURCE_QUALIFIER,
+  type MarketProfile,
+} from './MarketProfile';
+
 export const timeframes = ['5m', '15m', '30m', '1H', '4H', '1D', '1W', '1M'] as const;
 export type Timeframe = (typeof timeframes)[number];
+export type { MarketProfile } from './MarketProfile';
+export { CANONICAL_SYMBOL_REGEX, getMarketProfile, isCanonicalSymbol, calendarPeriodStart, marketProfileSchema, sessionDate, isSessionCloseObservation, SESSION_CLOSE_SOURCE_QUALIFIER };
 /** Kept as a source-compatible alias for callers that used the former roadmap type. */
 export type PlannedTimeframe = Timeframe;
 export type DataState = 'simulated' | 'delayed' | 'live';
@@ -27,6 +41,7 @@ export interface Quote {
   dataState?: DataState;
   retrievedAt?: number;
   cacheStatus?: CacheStatus;
+  market?: MarketProfile;
 }
 export interface BarNormalization {
   healedDailyClose?: {
@@ -61,6 +76,9 @@ export interface BarResult {
   dataState?: DataState;
   /** Set by CachedMarketDataProvider; stale results always carry `stale`. */
   cacheStatus?: CacheStatus;
+  market?: MarketProfile;
+  /** Actual Yahoo Taiwan 13:30 close-only rows; not regular interval OHLC bars. */
+  sessionCloseObservations?: number[];
 }
 export interface MarketDataProvider {
   /** Normalization changes must not reuse an older incompatible cache. */
@@ -80,6 +98,8 @@ export interface MarketDataProvider {
     range?: MarketRange,
     signal?: AbortSignal,
   ): Promise<CorporateEventsResult>;
+  /** Snapshot providers can advertise per-symbol interval coverage before loading chart data. */
+  getSymbolTimeframes?(symbol: string, signal?: AbortSignal): Promise<readonly Timeframe[]>;
 }
 export interface MarketDataCapabilities {
   corporateEvents: 'available' | 'unavailable';
@@ -125,7 +145,7 @@ export const intervalSeconds: Record<Timeframe, number> = {
 };
 export function normalizeSymbol(value: string): string {
   const symbol = value.trim().toUpperCase();
-  if (!/^[A-Z][A-Z0-9.^-]{0,14}$/.test(symbol)) throw new Error('請輸入有效的美股 ticker');
+  if (!CANONICAL_SYMBOL_REGEX.test(symbol)) throw new Error('請輸入有效的美股或台股 ticker');
   return symbol;
 }
 

@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { RefreshCw, ExternalLink } from 'lucide-react';
 import { reportError } from '../errors/UserErrors';
+import {
+  FinancialSnapshotProvider,
+  FinancialSnapshotUnavailableError,
+} from '../fundamentals/FinancialSnapshotProvider';
+import type { FinancialSnapshotMetadata } from '../fundamentals/FinancialSnapshotSchema';
 import { SecEdgarProvider } from '../fundamentals/SecEdgarProvider';
 import { financialGrowth, margins } from '../fundamentals/FinancialCalculations';
 import type {
@@ -10,7 +15,11 @@ import type {
   FundamentalsProvider,
 } from '../fundamentals/FundamentalsProvider';
 import { STATIC_HOSTING } from '../app/HostingMode';
+import { getMarketProfile } from '../market-data/MarketProfile';
 const sec = new SecEdgarProvider();
+const defaultProvider: FundamentalsProvider = STATIC_HOSTING
+  ? new FinancialSnapshotProvider()
+  : sec;
 const labels: Record<FinancialMetric, string> = {
   revenue: 'Revenue',
   costOfRevenue: 'Cost of Revenue',
@@ -47,6 +56,79 @@ const groups: Record<Tab, FinancialMetric[]> = {
 };
 const periodLabel = (r: CompanyFundamentals) =>
   `FY${r.fiscalYear}${r.fiscalQuarter ? ` Q${r.fiscalQuarter}` : ''}`;
+const dateTime = (seconds: number) => new Date(seconds * 1000).toLocaleString();
+type SnapshotMetadataProvider = FundamentalsProvider & {
+  getSnapshotMetadata?: (symbol: string) => FinancialSnapshotMetadata | undefined;
+};
+
+function sourceUrl(records: CompanyFundamentals[]) {
+  for (const record of records) {
+    for (const source of Object.values(record.sourceConcepts)) {
+      const url = source?.inputs[0]?.secUrl;
+      if (url) return url;
+    }
+  }
+  return undefined;
+}
+
+function latestFiling(records: CompanyFundamentals[]) {
+  return records.reduce<CompanyFundamentals | undefined>(
+    (latest, record) => (!latest || record.filingDate > latest.filingDate ? record : latest),
+    undefined,
+  );
+}
+
+export function sortFinancialPeriods(records: CompanyFundamentals[]): CompanyFundamentals[] {
+  return [...records].sort(
+    (a, b) => a.periodEnd.localeCompare(b.periodEnd) || a.filingDate.localeCompare(b.filingDate),
+  );
+}
+
+function FinancialProvenance({
+  records,
+  metadata,
+  receivedAt,
+}: {
+  records: CompanyFundamentals[];
+  metadata?: FinancialSnapshotMetadata;
+  receivedAt?: number;
+}) {
+  const source = metadata?.source ?? sourceUrl(records);
+  const latest = latestFiling(records);
+  if (!metadata && receivedAt === undefined && !latest) return null;
+
+  return (
+    <div className="financial-provenance-note" role="status">
+      {metadata ? (
+        <>
+          <p>
+            SEC snapshot · {metadata.offline ? 'OFFLINE CACHE' : 'ONLINE'} ·{' '}
+            {metadata.stale ? 'STALE' : metadata.cacheStatus.toUpperCase()}
+          </p>
+          <p>
+            Fetched {dateTime(metadata.fetchedAt)} · Snapshot as of {dateTime(metadata.generatedAt)}
+          </p>
+        </>
+      ) : receivedAt !== undefined ? (
+        <p>Live SEC response · received {dateTime(receivedAt)}</p>
+      ) : null}
+      {source && (
+        <p>
+          Source:{' '}
+          <a href={source} target="_blank" rel="noreferrer">
+            SEC companyfacts
+          </a>
+        </p>
+      )}
+      {latest && (
+        <p>
+          Latest included filing: {latest.form} · filed {latest.filingDate}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function formatFinancial(value: number | null, metric: FinancialMetric) {
   if (value === null) return 'N/A';
   return new Intl.NumberFormat('en-US', {
@@ -179,7 +261,7 @@ function Audit({ record, metric }: { record: CompanyFundamentals; metric: Financ
 export function FinancialPanel({
   symbol,
   simulatedMarket,
-  provider = sec,
+  provider = defaultProvider,
   onRecords,
 }: {
   symbol: string;
@@ -197,45 +279,62 @@ export function FinancialPanel({
     records: CompanyFundamentals[];
     error: string;
     loading: boolean;
+    metadata?: FinancialSnapshotMetadata;
+    receivedAt?: number;
   }>({ key: '', records: [], error: '', loading: true });
+  const market = getMarketProfile(symbol);
   useEffect(() => {
-    if (STATIC_HOSTING) return;
     const controller = new AbortController();
     let active = true;
+    if (market.market !== 'US') {
+      setData({
+        key,
+        records: [],
+        error: '',
+        loading: false,
+      });
+      onRecords?.([]);
+      return () => {
+        active = false;
+        controller.abort();
+      };
+    }
     setData({ key, records: [], error: '', loading: true });
     void provider
       .getFinancials(symbol, period, controller.signal)
       .then((records) => {
-        if (active) { setData({ key, records, error: '', loading: false }); onRecords?.(records); }
+        if (!active) return;
+        const metadata = (provider as SnapshotMetadataProvider).getSnapshotMetadata?.(symbol);
+        const ascendingRecords = sortFinancialPeriods(records);
+        setData({
+          key,
+          records: ascendingRecords,
+          error: '',
+          loading: false,
+          metadata,
+          receivedAt: Math.floor(Date.now() / 1000),
+        });
+        onRecords?.(ascendingRecords);
       })
-      .catch((error) => {
-        if(active) reportError('sec',error);
-        if (active)
-          setData({ key, records: [], error: 'SEC 資料來源暫時無法使用。', loading: false });
+      .catch((caught: unknown) => {
+        if (!active) return;
+        reportError('sec', caught);
+        const message =
+          caught instanceof FinancialSnapshotUnavailableError
+            ? `${symbol} SEC 財報快照目前不可用；請連線後重試，或確認此公司有已發布的資料包。`
+            : 'SEC 資料來源暫時無法使用。';
+        setData({
+          key,
+          records: [],
+          error: message,
+          loading: false,
+        });
       });
     return () => {
       active = false;
       controller.abort();
     };
   }, [symbol, period, provider, key, onRecords]);
-  if (STATIC_HOSTING) {
-    return (
-      <section
-        className="financial-panel"
-        data-testid="financial-panel"
-        aria-label={`${symbol} financials`}
-      >
-        <div className="section-heading">
-          <span>SEC EDGAR</span>
-          <span>需要 backend</span>
-        </div>
-        <div className="financial-state" role="status">
-          <strong>SEC 財報需要 backend</strong>
-          <p>GitHub Pages 靜態網站目前沒有 fundamentals backend，財報暫不可用。</p>
-        </div>
-      </section>
-    );
-  }
   const loading = data.key !== key || data.loading,
     records = data.key === key ? data.records : [],
     record = records.find((r) => r.periodEnd === selectedEnd) ?? records.at(-1);
@@ -246,116 +345,149 @@ export function FinancialPanel({
       aria-label={`${symbol} financials`}
     >
       <div className="section-heading">
-        <span>SEC EDGAR</span>
-        <span>USD · ACTUAL</span>
+        <span>SEC financials</span>
+        <span>
+          {market.market === 'US' ? 'USD · 10-K / 10-Q' : `${market.exchange} · ${market.currency}`}
+        </span>
       </div>
-      {simulatedMarket && (
-        <p className="financial-provenance-note">
-          財報為 SEC 實際申報資料；圖表價格仍是 DEMO 模擬。
-        </p>
-      )}
-      <div className="financial-period-toggle" role="group" aria-label="Financial frequency">
-        <button aria-pressed={period === 'quarterly'} onClick={() => setPeriod('quarterly')}>
-          Quarterly
-        </button>
-        <button aria-pressed={period === 'annual'} onClick={() => setPeriod('annual')}>
-          Annual
-        </button>
-      </div>
-      {loading ? (
-        <p role="status" className="financial-state">
-          讀取 {symbol} SEC 財報…
-        </p>
-      ) : data.error ? (
-        <div className="financial-state" role="alert">
-          <p>{data.error} K 線與 drawing 可繼續使用。</p>
-          <button className="financial-retry" onClick={() => setRetry((n) => n + 1)}>
-            <RefreshCw size={15} />
-            重新載入財報
-          </button>
+      {market.market !== 'US' ? (
+        <div className="financial-state" role="status">
+          <strong>SEC 財報不支援台灣上市市場</strong>
+          <p>
+            SEC financial data here covers U.S. issuers filing Forms 10-K and 10-Q in USD.{' '}
+            {market.exchange} companies report in TWD and are not represented by this SEC data
+            source.
+          </p>
+          <p>K 線、報價與其他研究工具仍可繼續使用。</p>
         </div>
-      ) : !record ? (
-        <p className="financial-state">此資料來源暫無可用財報</p>
       ) : (
         <>
-          <p className="financial-filing">{record.issuerName ?? symbol} · SEC CIK {record.cik ?? 'see audit source'}</p>
-          <label className="financial-period-label">
-            Fiscal period
-            <select
-              aria-label="Fiscal period"
-              value={record.periodEnd}
-              onChange={(e) => setSelectedEnd(e.target.value)}
-            >
-              {[...records].reverse().map((r) => (
-                <option key={r.periodEnd} value={r.periodEnd}>
-                  {periodLabel(r)} · {r.periodEnd}
-                </option>
-              ))}
-            </select>
-          </label>
-          <p className="financial-filing">SEC Filing（非 earnings timestamp）<br/>
-            {record.periodStart} → {record.periodEnd}
-            <br />
-            {record.form} · filed {record.filingDate}
-          </p>
-          <nav className="financial-tabs" aria-label="Financial statements">
-            {tabs.map((t) => (
-              <button key={t} aria-pressed={tab === t} onClick={() => setTab(t)}>
-                {t}
-              </button>
-            ))}
-          </nav>
-          <div className={tab === 'Overview' ? 'financial-overview' : 'financial-statement'}>
-            {groups[tab].map((metric) => {
-              const change = financialGrowth(records, record, metric);
-              return (
-                <div className="financial-metric" key={metric}>
-                  <Audit record={record} metric={metric} />
-                  {tab === 'Overview' && (
-                    <>
-                      <div className="financial-growth">
-                        <span>
-                          YoY <b>{percent(change.yoy)}</b>
-                        </span>
-                        {period === 'quarterly' && (
-                          <span>
-                            QoQ <b>{percent(change.qoq)}</b>
-                          </span>
-                        )}
-                      </div>
-                      <HistoryChart
-                        records={records.filter((r) => r.periodEnd <= record.periodEnd)}
-                        metric={metric}
-                      />
-                    </>
-                  )}
-                </div>
-              );
-            })}
+          {simulatedMarket && (
+            <p className="financial-provenance-note">
+              財報為 SEC 實際申報資料；圖表價格仍是 DEMO 模擬。
+            </p>
+          )}
+          <div className="financial-period-toggle" role="group" aria-label="Financial frequency">
+            <button aria-pressed={period === 'quarterly'} onClick={() => setPeriod('quarterly')}>
+              Quarterly
+            </button>
+            <button aria-pressed={period === 'annual'} onClick={() => setPeriod('annual')}>
+              Annual
+            </button>
           </div>
-          {tab === 'Overview' && (
-            <div className="financial-margins">
-              {Object.entries(margins(record)).map(([name, value]) => (
-                <div key={name}>
-                  <span>
-                    {name === 'gross' ? 'Gross' : name === 'operating' ? 'Operating' : 'Net'} Margin
-                  </span>
-                  <b>{value === null ? 'N/A' : `${value.toFixed(1)}%`}</b>
+          {loading ? (
+            <p role="status" className="financial-state">
+              讀取 {symbol} SEC 財報…
+            </p>
+          ) : data.error ? (
+            <div className="financial-state" role="alert">
+              <p>{data.error} K 線與 drawing 可繼續使用。</p>
+              <button className="financial-retry" onClick={() => setRetry((n) => n + 1)}>
+                <RefreshCw size={15} />
+                重新載入財報
+              </button>
+            </div>
+          ) : !record ? (
+            <>
+              <FinancialProvenance
+                records={records}
+                metadata={data.metadata}
+                receivedAt={data.receivedAt}
+              />
+              <p className="financial-state">此資料來源暫無可用財報</p>
+            </>
+          ) : (
+            <>
+              <FinancialProvenance
+                records={records}
+                metadata={data.metadata}
+                receivedAt={data.receivedAt}
+              />
+              <p className="financial-filing">
+                {record.issuerName ?? symbol} · SEC CIK {record.cik ?? 'see audit source'}
+              </p>
+              <label className="financial-period-label">
+                Fiscal period
+                <select
+                  aria-label="Fiscal period"
+                  value={record.periodEnd}
+                  onChange={(e) => setSelectedEnd(e.target.value)}
+                >
+                  {[...records].reverse().map((r) => (
+                    <option key={r.periodEnd} value={r.periodEnd}>
+                      {periodLabel(r)} · {r.periodEnd}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="financial-filing">
+                SEC Filing（非 earnings timestamp）
+                <br />
+                {record.periodStart} → {record.periodEnd}
+                <br />
+                {record.form} · filed {record.filingDate}
+              </p>
+              <nav className="financial-tabs" aria-label="Financial statements">
+                {tabs.map((t) => (
+                  <button key={t} aria-pressed={tab === t} onClick={() => setTab(t)}>
+                    {t}
+                  </button>
+                ))}
+              </nav>
+              <div className={tab === 'Overview' ? 'financial-overview' : 'financial-statement'}>
+                {groups[tab].map((metric) => {
+                  const change = financialGrowth(records, record, metric);
+                  return (
+                    <div className="financial-metric" key={metric}>
+                      <Audit record={record} metric={metric} />
+                      {tab === 'Overview' && (
+                        <>
+                          <div className="financial-growth">
+                            <span>
+                              YoY <b>{percent(change.yoy)}</b>
+                            </span>
+                            {period === 'quarterly' && (
+                              <span>
+                                QoQ <b>{percent(change.qoq)}</b>
+                              </span>
+                            )}
+                          </div>
+                          <HistoryChart
+                            records={records.filter((r) => r.periodEnd <= record.periodEnd)}
+                            metric={metric}
+                          />
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {tab === 'Overview' && (
+                <div className="financial-margins">
+                  {Object.entries(margins(record)).map(([name, value]) => (
+                    <div key={name}>
+                      <span>
+                        {name === 'gross' ? 'Gross' : name === 'operating' ? 'Operating' : 'Net'}{' '}
+                        Margin
+                      </span>
+                      <b>{value === null ? 'N/A' : `${value.toFixed(1)}%`}</b>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              )}
+              {!!record.warnings.length && (
+                <div className="financial-warnings" role="status">
+                  {record.warnings.map((w) => (
+                    <p key={w}>{w}</p>
+                  ))}
+                </div>
+              )}
+              <p className="financial-footnote">
+                點選數值查看 SEC 來源與推導。YoY／QoQ 依 fiscal period 對齊；成長率以 |前期值|
+                為分母。缺資料與 0 分母為 N/A。季度 EPS 僅採 standalone 申報值。
+              </p>
+            </>
           )}
-          {!!record.warnings.length && (
-            <div className="financial-warnings" role="status">
-              {record.warnings.map((w) => (
-                <p key={w}>{w}</p>
-              ))}
-            </div>
-          )}
-          <p className="financial-footnote">
-            點選數值查看 SEC 來源與推導。YoY／QoQ 依 fiscal period 對齊；成長率以 |前期值|
-            為分母。缺資料與 0 分母為 N/A。季度 EPS 僅採 standalone 申報值。
-          </p>
         </>
       )}
     </section>

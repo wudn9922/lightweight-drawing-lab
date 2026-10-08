@@ -5,10 +5,17 @@ import type {
   CorporateEventsResult,
   MarketDataProvider,
   MarketRange,
+  Bar,
   Quote,
   Timeframe,
 } from './MarketDataProvider';
 import { normalizeSymbol } from './MarketDataProvider';
+import {
+  getMarketProfile,
+  isSessionCloseObservation,
+  sameMarketProfile,
+  SESSION_CLOSE_SOURCE_QUALIFIER,
+} from './MarketProfile';
 import { MarketDataUnavailableError } from './ProviderErrors';
 
 export const MARKET_CACHE_DATABASE = 'atlas-market-cache';
@@ -87,10 +94,35 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function validateMarket(value: unknown, expectedSymbol: string): void {
+  const expected = getMarketProfile(expectedSymbol);
+  if (expected.market === 'TW' && !sameMarketProfile(value, expected)) {
+    throw new MarketCacheCorruptionError('Taiwan market data is missing or has mismatched market metadata');
+  }
+  if (value !== undefined && !sameMarketProfile(value, expected)) {
+    throw new MarketCacheCorruptionError('Market metadata does not match the requested symbol');
+  }
+}
+
+function validateQuote(value: unknown, expectedSymbol: string): void {
+  if (!isObject(value) || value.symbol !== expectedSymbol) {
+    throw new MarketCacheCorruptionError('Cached quote does not match the requested symbol');
+  }
+  if (
+    typeof value.price !== 'number' || !Number.isFinite(value.price) || value.price <= 0 ||
+    ![value.change, value.changePercent, value.asOf].every(part => typeof part === 'number' && Number.isFinite(part)) ||
+    (value.retrievedAt !== undefined && (typeof value.retrievedAt !== 'number' || !Number.isFinite(value.retrievedAt)))
+  ) {
+    throw new MarketCacheCorruptionError('Cached quote has invalid numeric fields');
+  }
+  validateMarket(value.market, expectedSymbol);
+}
+
 function validateValue(
   kind: CacheKind,
   value: unknown,
   expectedSymbol: string,
+  timeframe?: string,
 ): asserts value is CacheValue {
   if (!isObject(value)) throw new MarketCacheCorruptionError('Cached market data is not an object');
   if (kind === 'bars') {
@@ -103,6 +135,8 @@ function validateValue(
     ) {
       throw new MarketCacheCorruptionError('Cached bars have an invalid result shape');
     }
+    validateMarket(value.market, expectedSymbol);
+    if (value.quote !== undefined) validateQuote(value.quote, expectedSymbol);
     for (const bar of value.bars) {
       if (
         !isObject(bar) ||
@@ -124,6 +158,34 @@ function validateValue(
         throw new MarketCacheCorruptionError('Cached bars are not strictly time sorted');
       }
     }
+    if (value.sessionCloseObservations !== undefined) {
+      if (!Array.isArray(value.sessionCloseObservations)) {
+        throw new MarketCacheCorruptionError('Cached session-close observations are invalid');
+      }
+      const observations = value.sessionCloseObservations;
+      if (new Set(observations).size !== observations.length) {
+        throw new MarketCacheCorruptionError('Cached session-close observations are duplicated');
+      }
+      if (observations.length) {
+        const market = getMarketProfile(expectedSymbol);
+        if (
+          market.market !== 'TW' ||
+          ['1D', '1W', '1M'].includes(timeframe ?? '') ||
+          !value.source.includes(SESSION_CLOSE_SOURCE_QUALIFIER)
+        ) {
+          throw new MarketCacheCorruptionError('Cached session-close observations have invalid provenance');
+        }
+        for (const time of observations) {
+          if (typeof time !== 'number' || !Number.isFinite(time) || !Number.isInteger(time) || time <= 0) {
+            throw new MarketCacheCorruptionError('Cached session-close observation time is invalid');
+          }
+          const bar = value.bars.find(candidate => candidate.time === time);
+          if (!bar || !isSessionCloseObservation(bar as unknown as Bar, market)) {
+            throw new MarketCacheCorruptionError('Cached session-close observation does not match a source bar');
+          }
+        }
+      }
+    }
     if (
       (value.asOf !== undefined &&
         (typeof value.asOf !== 'number' || !Number.isFinite(value.asOf))) ||
@@ -136,16 +198,7 @@ function validateValue(
       throw new MarketCacheCorruptionError('Cached bar result has invalid time metadata');
     }
   } else if (kind === 'quote') {
-    if (
-      value.symbol !== expectedSymbol ||
-      ![value.price, value.change, value.changePercent, value.asOf].every(
-        (part) => typeof part === 'number' && Number.isFinite(part),
-      ) ||
-      (value.retrievedAt !== undefined &&
-        (typeof value.retrievedAt !== 'number' || !Number.isFinite(value.retrievedAt)))
-    ) {
-      throw new MarketCacheCorruptionError('Cached quote has an invalid result shape');
-    }
+    validateQuote(value, expectedSymbol);
   } else {
     if (
       !['available', 'unavailable'].includes(String(value.status)) ||
@@ -205,7 +258,7 @@ function assertIdentity(entry: MarketCacheEntry, expected: CacheIdentity): void 
   ) {
     throw new MarketCacheCorruptionError('Cached market data does not match its request key');
   }
-  validateValue(expected.kind, entry.value, expected.symbol);
+  validateValue(expected.kind, entry.value, expected.symbol, expected.timeframe);
 }
 
 function clone<T>(value: T): T {
@@ -307,6 +360,16 @@ export class CachedMarketDataProvider implements MarketDataProvider {
     return result as Quote;
   }
 
+  async getSymbolTimeframes(symbol: string, signal?: AbortSignal): Promise<readonly Timeframe[]> {
+    signal?.throwIfAborted();
+    const normalizedSymbol = normalizeSymbol(symbol);
+    const getTimeframes = this.provider.getSymbolTimeframes;
+    if (!getTimeframes) return this.supportedTimeframes;
+    const result = await getTimeframes.call(this.provider, normalizedSymbol, signal);
+    signal?.throwIfAborted();
+    return this.supportedTimeframes.filter((timeframe) => result.includes(timeframe));
+  }
+
   /** Optional provider support is exposed as a normalized unavailable status when absent. */
   async getCorporateEvents(
     symbol: string,
@@ -356,7 +419,7 @@ export class CachedMarketDataProvider implements MarketDataProvider {
     if (!pending) {
       pending = (async () => {
         const raw = await load();
-        validateValue(identity.kind, raw, identity.symbol);
+        validateValue(identity.kind, raw, identity.symbol, identity.timeframe);
         const fresh = labelValue(raw, 'fresh');
         try {
           await this.write(identity, fresh);

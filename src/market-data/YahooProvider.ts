@@ -10,6 +10,7 @@ import { filterBarsByRange, normalizeMarketRange, normalizeSymbol } from './Mark
 import { MarketDataUnavailableError } from './ProviderErrors';
 import { isYahooTimeframe } from './YahooIntervals';
 import { STATIC_HOSTING } from '../app/HostingMode';
+import { getMarketProfile, sameMarketProfile, SESSION_CLOSE_SOURCE_QUALIFIER } from './MarketProfile';
 
 const STATIC_BACKEND_REQUIRED =
   'Yahoo 資料需要 backend；此 GitHub Pages 靜態部署沒有 Yahoo backend，請連接 backend 或手動選擇 Demo。';
@@ -24,7 +25,7 @@ function periodSource(source: string, result: CalendarBarResult, bars: BarResult
 
 export class YahooProvider implements MarketDataProvider {
   readonly id = 'yahoo';
-  readonly cacheVersion = 'split-basis-v3-daily-current-period';
+  readonly cacheVersion = 'marketprofile-v4';
   readonly supportedTimeframes = ['5m', '15m', '30m', '1H', '1D', '1W', '1M'] as const;
   readonly capabilities = { corporateEvents: 'available' } as const;
   async getBars(
@@ -51,9 +52,33 @@ export class YahooProvider implements MarketDataProvider {
     if (!result || !Array.isArray(result.bars) || typeof result.source !== 'string') {
       throw new Error('Yahoo returned invalid bar data');
     }
+    const market = getMarketProfile(normalizedSymbol);
+    if (market.market === 'TW' && !sameMarketProfile(result.market, market)) {
+      throw new Error('Yahoo returned missing or mismatched Taiwan market metadata');
+    }
+    if (result.market !== undefined && !sameMarketProfile(result.market, market)) {
+      throw new Error('Yahoo returned market metadata for a different symbol');
+    }
+    if (result.quote?.market !== undefined && !sameMarketProfile(result.quote.market, market)) {
+      throw new Error('Yahoo quote market metadata does not match the requested symbol');
+    }
+    if (market.market === 'TW' && result.quote && !sameMarketProfile(result.quote.market, market)) {
+      throw new Error('Yahoo Taiwan quote is missing market metadata');
+    }
     const bars = filterBarsByRange(result.bars, normalizedRange);
     if (!bars.length) throw new Error('No Yahoo bars in requested range');
-    return { ...result, bars, source: periodSource(result.source, result, bars), latestBarAt: bars.at(-1)!.time };
+    const sessionCloseObservations = result.sessionCloseObservations?.filter(time => bars.some(bar => bar.time === time));
+    const source = result.sessionCloseObservations?.length && !sessionCloseObservations?.length
+      ? result.source.replace(` · ${SESSION_CLOSE_SOURCE_QUALIFIER}`, '')
+      : result.source;
+    return {
+      ...result,
+      bars,
+      ...(result.sessionCloseObservations !== undefined ? { sessionCloseObservations } : {}),
+      market: result.market ?? market,
+      source: periodSource(source, result, bars),
+      latestBarAt: bars.at(-1)!.time,
+    };
   }
   async getCorporateEvents(
     symbol: string,
@@ -90,7 +115,7 @@ export class YahooProvider implements MarketDataProvider {
   async getQuote(symbol: string, signal?: AbortSignal): Promise<Quote> {
     const normalizedSymbol = normalizeSymbol(symbol);
     const result = await this.getBars(normalizedSymbol, '1D', undefined, signal);
-    if (result.quote) return { ...result.quote, cacheStatus: result.cacheStatus };
+    if (result.quote) return { ...result.quote, market: result.market, cacheStatus: result.cacheStatus };
     const { bars } = result;
     const a = bars.at(-1),
       b = bars.at(-2);
@@ -108,6 +133,7 @@ export class YahooProvider implements MarketDataProvider {
       dataState: result.dataState ?? 'delayed',
       retrievedAt: result.asOf,
       cacheStatus: result.cacheStatus ?? 'fresh',
+      market: result.market ?? getMarketProfile(normalizedSymbol),
     };
   }
 }

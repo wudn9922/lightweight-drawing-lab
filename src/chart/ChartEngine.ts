@@ -34,6 +34,9 @@ import type { StrategyResult } from '../strategy';
 import type { FilingEvent } from '../events/FilingEvents';
 import { coloredVolume, volumeSma } from '../indicators/Volume';
 import { averageTrueRange } from '../indicators/AverageTrueRange';
+import { getMarketProfile } from '../market-data/MarketProfile';
+import { marketTimeOptions } from './MarketTimeLabels';
+import { COMPACT_AXIS_FONT_FAMILY, COMPACT_AXIS_FONT_SIZE, compactAxisPrice } from './AxisAppearance';
 const compactVolume = new Intl.NumberFormat('en-US', {
   notation: 'compact',
   maximumFractionDigits: 2,
@@ -91,8 +94,8 @@ export class ChartEngine {
       layout: {
         background: { type: ColorType.Solid, color: '#0e1521' },
         textColor: '#8290a5',
-        fontFamily: 'Inter, system-ui, sans-serif',
-        fontSize: 11,
+        fontFamily: COMPACT_AXIS_FONT_FAMILY,
+        fontSize: COMPACT_AXIS_FONT_SIZE,
         attributionLogo: true,
       },
       grid: { vertLines: { color: '#1a2332' }, horzLines: { color: '#1a2332' } },
@@ -103,7 +106,7 @@ export class ChartEngine {
       },
       rightPriceScale: {
         borderColor: '#243043',
-        minimumWidth: 40,
+        minimumWidth: 0,
         scaleMargins: { top: 0.05, bottom: 0.22 },
       },
       timeScale: {
@@ -120,7 +123,7 @@ export class ChartEngine {
         vertTouchDrag: true,
       },
       handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
-      localization: { locale: 'en-US' },
+      localization: { locale: 'en-US', priceFormatter: compactAxisPrice },
     });
     this.candles = this.chart.addSeries(CandlestickSeries, {
       upColor: '#39baa0',
@@ -230,7 +233,8 @@ export class ChartEngine {
     this.indicatorInstances = indicators;
     this.allDrawings = drawings;
     this.revision++;
-    this.mapper = new TimeMapper(result.bars, timeframe);
+    const market = result.market ?? getMarketProfile(symbol);
+    this.mapper = new TimeMapper(result.bars, timeframe, 500, market);
     const transform = new ChartTransform(this.chart, this.candles, this.mapper, this.atr);
     this.candles.setData([
       ...result.bars.map((b) => ({ ...b, time: b.time as UTCTimestamp })),
@@ -249,7 +253,7 @@ export class ChartEngine {
       volumeAverageData.map((point) => [point.time, point.value]),
     );
     this.chart.applyOptions({
-      timeScale: { timeVisible: timeframe !== '1D' && timeframe !== '1W' && timeframe !== '1M' },
+      ...marketTimeOptions(market, timeframe),
     });
     const visible = drawings.filter((d) => drawingVisible(d, symbol, timeframe));
     const machine = new DrawingStateMachine(
@@ -280,7 +284,8 @@ export class ChartEngine {
     this.ohlcBar = result.bars.at(-1) ?? null;
     this.renderHeader();
     this.scheduleVisualFrame();
-    this.sourceLabel.textContent = `${result.source} · ${result.session.toUpperCase()} · ${result.dataState ?? (result.delayed ? 'DELAYED' : 'SIMULATED')} · ${result.cacheStatus ?? 'fresh'} · ${result.priceBasis ?? 'unknown price basis'} · as-of ${result.asOf ? new Date(result.asOf * 1000).toLocaleString() : 'N/A'} · last bar ${new Date(result.bars.at(-1)!.time * 1000).toLocaleString()}`;
+    this.sourceLabel.textContent = `${result.source} · ${market.currency} · ${market.timezone} · ${result.session.toUpperCase()} · ${result.dataState ?? (result.delayed ? 'DELAYED' : 'SIMULATED')} · ${result.cacheStatus ?? 'fresh'} · ${result.priceBasis ?? 'unknown price basis'} · as-of ${result.asOf ? new Date(result.asOf * 1000).toLocaleString() : 'N/A'} · last bar ${new Date(result.bars.at(-1)!.time * 1000).toLocaleString()}`;
+    if (result.sessionCloseObservations?.length) this.sourceLabel.textContent += ` · ${result.sessionCloseObservations.length} source-reported auction-close observations (instant samples)`;
     this.sourceLabel.title = this.sourceLabel.textContent;
   }
   sync(

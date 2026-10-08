@@ -10,6 +10,7 @@ import type {
 import { filterBarsByRange, intervalSeconds, normalizeMarketRange, normalizeSymbol } from './MarketDataProvider';
 import { regularSessionOpen } from '../chart/TimeMapper';
 import { barEndTime } from './MarketTiming';
+import { getMarketProfile } from './MarketProfile';
 export const DEMO_AS_OF = Date.parse('2026-10-05T20:05:00Z') / 1000;
 const base: Record<string, number> = {
   AAPL: 232,
@@ -100,6 +101,9 @@ export class DemoProvider implements MarketDataProvider {
   ): Promise<BarResult> {
     signal?.throwIfAborted();
     const normalizedSymbol = normalizeSymbol(symbol);
+    if (getMarketProfile(normalizedSymbol).market === 'TW') {
+      throw new Error('Taiwan Demo unavailable; choose delayed snapshots or Yahoo');
+    }
     const normalizedRange = normalizeMarketRange(range);
     let seed = hash(normalizedSymbol + timeframe);
     const rand = () => {
@@ -141,7 +145,11 @@ export class DemoProvider implements MarketDataProvider {
     };
   }
   async getQuote(symbol: string, signal?: AbortSignal): Promise<Quote> {
+    signal?.throwIfAborted();
     const normalizedSymbol = normalizeSymbol(symbol);
+    if (getMarketProfile(normalizedSymbol).market === 'TW') {
+      throw new Error('Taiwan Demo unavailable; choose delayed snapshots or Yahoo');
+    }
     const { bars } = await this.getBars(normalizedSymbol, '1D', undefined, signal);
     const a = bars.at(-1)!,
       b = bars.at(-2)!;

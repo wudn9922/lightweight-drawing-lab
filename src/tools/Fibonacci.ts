@@ -1,5 +1,6 @@
 import type { Drawing, DrawingProjection, Point } from '../drawing/DrawingModel';
 import { segmentDistance } from './TrendLine';
+import { getMarketProfile } from '../market-data/MarketProfile';
 export const DEFAULT_FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1] as const;
 /** Retracement 0 is the end of the leg (P2); 1 is its origin (P1). */
 export function fibPrice(p1: number, p2: number, level: number): number {
@@ -72,7 +73,7 @@ export function drawFibonacci(
     )
       continue;
     let text = String(line.level);
-    if (projection.width() >= 500 && right - left >= 160) text += `  $${line.price.toFixed(2)}`;
+    if (projection.width() >= 500 && right - left >= 160) text += `  ${getMarketProfile(d.symbol).currency === 'TWD' ? 'TWD ' : '$'}${line.price.toFixed(2)}`;
     const width = ctx.measureText(text).width;
     ctx.fillStyle = '#0e1521e6';
     ctx.fillRect(left * rx, (line.a.y - 14) * ry, width + 6 * rx, 14 * ry);

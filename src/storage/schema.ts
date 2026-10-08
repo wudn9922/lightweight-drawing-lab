@@ -1,6 +1,7 @@
 import { z } from 'zod';
+import { CANONICAL_SYMBOL_REGEX } from '../market-data/MarketProfile';
 
-const symbol = z.string().regex(/^[A-Z][A-Z0-9.^-]{0,14}$/);
+const symbol = z.string().regex(CANONICAL_SYMBOL_REGEX);
 const finite = z.number().finite();
 export const timeframes = ['5m', '15m', '30m', '1H', '4H', '1D', '1W', '1M'] as const;
 export const timeframeSchema = z.enum(timeframes);

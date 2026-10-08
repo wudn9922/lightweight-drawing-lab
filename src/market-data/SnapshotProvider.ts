@@ -1,11 +1,12 @@
 import { snapshotSchema, type MarketSnapshot } from './SnapshotSchema';
-import { filterBarsByRange, normalizeMarketRange, normalizeSymbol, type MarketDataProvider, type MarketRange, type Timeframe } from './MarketDataProvider';
+import { filterBarsByRange, normalizeMarketRange, normalizeSymbol, timeframes, type MarketDataProvider, type MarketRange, type Timeframe } from './MarketDataProvider';
 import { MarketDataUnavailableError } from './ProviderErrors';
+import { getMarketProfile, SESSION_CLOSE_SOURCE_QUALIFIER } from './MarketProfile';
 
 /** Same-origin real, delayed snapshots. No CORS proxy, secret, or invented fallback. */
 export class SnapshotProvider implements MarketDataProvider {
   readonly id = 'snapshot';
-  readonly cacheVersion = 'split-basis-v3-daily-current-period';
+  readonly cacheVersion = 'marketprofile-v4';
   readonly supportedTimeframes = ['5m', '15m', '30m', '1H', '1D', '1W', '1M'] as const;
   readonly capabilities = { corporateEvents: 'available' } as const;
   private pending = new Map<string, Promise<MarketSnapshot>>();
@@ -35,9 +36,9 @@ export class SnapshotProvider implements MarketDataProvider {
     signal?.throwIfAborted();
     return structuredClone(data);
   }
-  private source(generatedAt: number, asOf: number) {
+  private source(generatedAt: number, asOf: number, hasSessionCloseObservations = false) {
     const age = this.now() / 1000 - generatedAt;
-    return `Yahoo 延遲快照 · 拆股已調整 · 行情 ${new Date(asOf * 1000).toLocaleString()} · 快照 ${new Date(generatedAt * 1000).toLocaleString()}${age > 7200 ? ' · 快照超過 2 小時，非即時' : ' · 非即時'}`;
+    return `Yahoo 延遲快照 · 拆股已調整 · 行情 ${new Date(asOf * 1000).toLocaleString()} · 快照 ${new Date(generatedAt * 1000).toLocaleString()}${age > 7200 ? ' · 快照超過 2 小時，非即時' : ' · 非即時'}${hasSessionCloseObservations ? ` · ${SESSION_CLOSE_SOURCE_QUALIFIER}` : ''}`;
   }
   private periodSource(source: string, result: NonNullable<MarketSnapshot['results'][Timeframe]>, bars: NonNullable<MarketSnapshot['results'][Timeframe]>['bars']) {
     const period = result.normalization?.currentPeriod;
@@ -53,12 +54,24 @@ export class SnapshotProvider implements MarketDataProvider {
     if (!result) throw new MarketDataUnavailableError(`${symbol} ${timeframe} 暫無可靠快照資料。`);
     const bars = filterBarsByRange(result.bars, normalizedRange);
     if (!bars.length) throw new Error('No snapshot bars in requested range');
-    const source = this.source(data.generatedAt, data.quote.asOf);
-    return { ...result, bars, latestBarAt: bars.at(-1)!.time, source: this.periodSource(source, result, bars) };
+    const sessionCloseObservations = result.sessionCloseObservations?.filter(time => bars.some(bar => bar.time === time));
+    const source = this.source(data.generatedAt, data.quote.asOf, !!sessionCloseObservations?.length);
+    return {
+      ...result,
+      bars,
+      ...(result.sessionCloseObservations !== undefined ? { sessionCloseObservations } : {}),
+      market: result.market ?? data.market ?? getMarketProfile(symbol),
+      latestBarAt: bars.at(-1)!.time,
+      source: this.periodSource(source, result, bars),
+    };
   }
   async getQuote(symbol: string, signal?: AbortSignal) {
     const data = await this.load(symbol, signal);
-    return { ...data.quote, source: this.source(data.generatedAt, data.quote.asOf) };
+    return { ...data.quote, market: data.quote.market ?? data.market ?? getMarketProfile(symbol), source: this.source(data.generatedAt, data.quote.asOf) };
+  }
+  async getSymbolTimeframes(symbol: string, signal?: AbortSignal): Promise<readonly Timeframe[]> {
+    const data = await this.load(symbol, signal);
+    return timeframes.filter((timeframe) => this.supportedTimeframes.includes(timeframe as typeof this.supportedTimeframes[number]) && !!data.results[timeframe]);
   }
   async getCorporateEvents(symbol: string, range?: MarketRange, signal?: AbortSignal) {
     const normalizedRange = normalizeMarketRange(range);

@@ -495,7 +495,7 @@ test('price scale auto-sizes naturally for ordinary and million-price labels', a
     }
   });
 
-  expect(measurements.ordinary.minimumWidth).toBe(40);
+  expect(measurements.ordinary.minimumWidth).toBe(0);
   expect(measurements.ordinary.axisWidth).toBeGreaterThan(0);
   expect(measurements.ordinary.axisWidth).toBeLessThan(64);
   expect(measurements.ordinary.paneWidth).toBeGreaterThan(0);

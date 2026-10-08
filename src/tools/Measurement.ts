@@ -1,4 +1,5 @@
 import type { Drawing, DrawingProjection, Point } from '../drawing/DrawingModel';
+import { getMarketProfile } from '../market-data/MarketProfile';
 
 export type MeasurementKind = 'price-range' | 'date-range' | 'price-date-range';
 
@@ -82,7 +83,7 @@ export function measurementLabel(
   if (!values) return null;
 
   const priceDeltaSign = values.priceDelta > 0 ? '+' : values.priceDelta < 0 ? '−' : '';
-  const price = `${priceDeltaSign}$${Math.abs(values.priceDelta).toFixed(2)} ${
+  const price = `${priceDeltaSign}${getMarketProfile(drawing.symbol).currency === 'TWD' ? 'TWD ' : '$'}${Math.abs(values.priceDelta).toFixed(2)} ${
     values.pricePercent === null ? '(N/A)' : `(${signedNumber(values.pricePercent, 2)}%)`
   }`;
   const barsDecimals = Number.isInteger(values.barDelta) ? 0 : 1;

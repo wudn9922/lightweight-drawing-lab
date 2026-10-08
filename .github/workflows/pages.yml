@@ -29,17 +29,39 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run lint
-      - uses: actions/cache/restore@v4
+      - name: Restore compatible market profile cache
+        uses: actions/cache/restore@v4
         with:
           path: public/market-data
-          key: atlas-market-v3-${{ github.run_id }}
-          restore-keys: atlas-market-v3-
-      - run: node scripts/refresh-market.mjs
-      - uses: actions/cache/save@v4
+          key: atlas-market-profile-v4-${{ github.run_id }}
+          restore-keys: atlas-market-profile-v4-
+      - name: Restore SEC financial snapshot cache
+        uses: actions/cache/restore@v4
+        with:
+          path: public/financial-data
+          key: atlas-financial-v1-${{ github.run_id }}
+          restore-keys: atlas-financial-v1-
+      - name: Refresh official Taiwan symbol directory
+        run: node scripts/refresh-symbols.mjs
+        continue-on-error: true
+      - name: Refresh delayed market snapshots
+        run: node scripts/refresh-market.mjs
+      - name: Refresh normalized SEC financial snapshots
+        run: node scripts/refresh-fundamentals.mjs
+        env:
+          SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT || 'Atlas Research Terminal/1.0 (+https://github.com/wudn9922/lightweight-drawing-lab)' }}
+      - name: Save market profile cache
+        uses: actions/cache/save@v4
         if: always()
         with:
           path: public/market-data
-          key: atlas-market-v3-${{ github.run_id }}
+          key: atlas-market-profile-v4-${{ github.run_id }}
+      - name: Save SEC financial snapshot cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: public/financial-data
+          key: atlas-financial-v1-${{ github.run_id }}
       - run: npm run build:pages
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
