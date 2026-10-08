@@ -110,6 +110,11 @@ function secClient(data: unknown = rawAapl) {
   };
 }
 
+async function writePack(directory: string, symbol: string, pack: FinancialSnapshot) {
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, `${symbol}.json`), JSON.stringify(pack));
+}
+
 describe('SEC financial snapshot collector', () => {
   it('uses one official companyfacts resolution for both periods and writes one atomic v1 pack', async () => {
     const root = await mkdtemp(join(tmpdir(), 'atlas-financial-refresh-'));
@@ -120,6 +125,7 @@ describe('SEC financial snapshot collector', () => {
       allowlist: ['AAPL'],
       requested: ['AAPL'],
       dataDir: join(root, 'financial-data'),
+      seedDirectory: join(root, 'missing-seeds'),
       now: () => time,
       client,
     });
@@ -135,6 +141,215 @@ describe('SEC financial snapshot collector', () => {
     expect(manifest.symbols.AAPL).toMatchObject({ status: 'fresh', attemptedAt: Math.floor(time / 1000) });
   });
 
+  it('bootstraps a fresh validated seed without calling SEC', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'atlas-financial-seed-fresh-'));
+    roots.push(root);
+    const now = Math.floor(Date.now() / 1000);
+    const seed = snapshotFor('AAPL', now - 60);
+    const seedDirectory = join(root, 'seeds');
+    const dataDir = join(root, 'financial-data');
+    await writePack(seedDirectory, 'AAPL', seed);
+    const client = { companyFacts: vi.fn(async () => { throw new Error('SEC must not be called for a fresh seed'); }) };
+
+    const summary = await refreshFundamentals({
+      allowlist: ['AAPL'],
+      requested: ['AAPL'],
+      dataDir,
+      seedDirectory,
+      now: () => now * 1000,
+      client,
+    });
+
+    expect(client.companyFacts).not.toHaveBeenCalled();
+    expect(summary.symbols.AAPL).toMatchObject({ status: 'fresh', fetchedAt: seed.fetchedAt, generatedAt: seed.generatedAt });
+    expect(await readFile(join(dataDir, 'AAPL.json'), 'utf8')).toBe(JSON.stringify(seed));
+  });
+
+  it('keeps stale seed provenance and timestamps after an SEC 403', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'atlas-financial-seed-stale-'));
+    roots.push(root);
+    const now = Math.floor(Date.now() / 1000);
+    const seed = snapshotFor('AAPL', now - 25 * 60 * 60);
+    const seedDirectory = join(root, 'seeds');
+    const dataDir = join(root, 'financial-data');
+    await writePack(seedDirectory, 'AAPL', seed);
+    const client = { companyFacts: vi.fn(async () => { throw new Error('SEC HTTP 403'); }) };
+
+    const summary = await refreshFundamentals({
+      allowlist: ['AAPL'],
+      requested: ['AAPL'],
+      dataDir,
+      seedDirectory,
+      now: () => now * 1000,
+      client,
+    });
+
+    expect(client.companyFacts).toHaveBeenCalledWith('AAPL');
+    expect(summary.symbols.AAPL).toMatchObject({
+      status: 'retained',
+      fetchedAt: seed.fetchedAt,
+      generatedAt: seed.generatedAt,
+      error: 'SEC HTTP 403',
+    });
+    expect(await readFile(join(dataDir, 'AAPL.json'), 'utf8')).toBe(JSON.stringify(seed));
+  });
+
+  it('preserves stale output when a seed copy fails and continues bootstrapping later issuers', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'atlas-financial-seed-copy-failure-'));
+    roots.push(root);
+    const now = Math.floor(Date.now() / 1000);
+    const existingAapl = snapshotFor('AAPL', now - 25 * 60 * 60);
+    const freshAaplSeed = snapshotFor('AAPL', now - 60);
+    const freshMsftSeed = smallSnapshotFor('MSFT', now - 60);
+    const seedDirectory = join(root, 'seeds');
+    const dataDir = join(root, 'financial-data');
+    await writePack(seedDirectory, 'AAPL', freshAaplSeed);
+    await writePack(seedDirectory, 'MSFT', freshMsftSeed);
+    await mkdir(join(dataDir, 'AAPL.json.tmp'), { recursive: true });
+    const existingAaplBytes = JSON.stringify(existingAapl, null, 2);
+    await writeFile(join(dataDir, 'AAPL.json'), existingAaplBytes);
+    const client = { companyFacts: vi.fn(async (symbol: string) => {
+      throw new Error(symbol === 'AAPL' ? 'SEC HTTP 403' : `Unexpected SEC request for ${symbol}`);
+    }) };
+
+    const summary = await refreshFundamentals({
+      allowlist: ['AAPL', 'MSFT'],
+      requested: ['AAPL', 'MSFT'],
+      dataDir,
+      seedDirectory,
+      now: () => now * 1000,
+      client,
+    });
+
+    expect(summary.symbols.AAPL).toMatchObject({
+      status: 'retained',
+      fetchedAt: existingAapl.fetchedAt,
+      generatedAt: existingAapl.generatedAt,
+      error: 'SEC HTTP 403',
+    });
+    expect(await readFile(join(dataDir, 'AAPL.json'), 'utf8')).toBe(existingAaplBytes);
+    expect(summary.symbols.MSFT).toMatchObject({
+      status: 'fresh',
+      fetchedAt: freshMsftSeed.fetchedAt,
+      generatedAt: freshMsftSeed.generatedAt,
+      quarterlyRecords: 0,
+      annualRecords: 1,
+    });
+    expect(await readFile(join(dataDir, 'MSFT.json'), 'utf8')).toBe(JSON.stringify(freshMsftSeed));
+    expect(client.companyFacts.mock.calls.map(([symbol]) => symbol)).toEqual(['AAPL']);
+  });
+
+  it('does not downgrade a newer valid output with an older seed', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'atlas-financial-seed-older-'));
+    roots.push(root);
+    const now = Math.floor(Date.now() / 1000);
+    const existing = snapshotFor('AAPL', now - 10 * 60 * 60);
+    const olderSeed = snapshotFor('AAPL', now - 20 * 60 * 60);
+    const seedDirectory = join(root, 'seeds');
+    const dataDir = join(root, 'financial-data');
+    await writePack(seedDirectory, 'AAPL', olderSeed);
+    await mkdir(dataDir, { recursive: true });
+    const existingBytes = JSON.stringify(existing, null, 2);
+    await writeFile(join(dataDir, 'AAPL.json'), existingBytes);
+    const client = { companyFacts: vi.fn(async () => { throw new Error('fresh output should not refresh'); }) };
+
+    const summary = await refreshFundamentals({
+      allowlist: ['AAPL'],
+      requested: ['AAPL'],
+      dataDir,
+      seedDirectory,
+      now: () => now * 1000,
+      client,
+    });
+
+    expect(client.companyFacts).not.toHaveBeenCalled();
+    expect(summary.symbols.AAPL).toMatchObject({ status: 'fresh', fetchedAt: existing.fetchedAt, generatedAt: existing.generatedAt });
+    expect(await readFile(join(dataDir, 'AAPL.json'), 'utf8')).toBe(existingBytes);
+  });
+
+  it('ignores invalid and wrong-symbol seeds without replacing valid existing snapshots', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'atlas-financial-seed-invalid-'));
+    roots.push(root);
+    const now = Math.floor(Date.now() / 1000);
+    const aapl = snapshotFor('AAPL', now - 30 * 60 * 60);
+    const msft = snapshotFor('MSFT', now - 30 * 60 * 60);
+    const seedDirectory = join(root, 'seeds');
+    const dataDir = join(root, 'financial-data');
+    await mkdir(seedDirectory, { recursive: true });
+    await mkdir(dataDir, { recursive: true });
+    await writeFile(join(seedDirectory, 'AAPL.json'), '{ invalid JSON');
+    await writePack(seedDirectory, 'MSFT', snapshotFor('NVDA', now - 60));
+    const aaplBytes = JSON.stringify(aapl, null, 2);
+    const msftBytes = JSON.stringify(msft, null, 2);
+    await writeFile(join(dataDir, 'AAPL.json'), aaplBytes);
+    await writeFile(join(dataDir, 'MSFT.json'), msftBytes);
+    const client = { companyFacts: vi.fn(async () => { throw new Error('SEC HTTP 403'); }) };
+
+    const summary = await refreshFundamentals({
+      allowlist: ['AAPL', 'MSFT'],
+      requested: ['AAPL', 'MSFT'],
+      dataDir,
+      seedDirectory,
+      now: () => now * 1000,
+      client,
+    });
+
+    expect(summary.symbols.AAPL).toMatchObject({ status: 'retained', fetchedAt: aapl.fetchedAt, generatedAt: aapl.generatedAt });
+    expect(summary.symbols.MSFT).toMatchObject({ status: 'retained', fetchedAt: msft.fetchedAt, generatedAt: msft.generatedAt });
+    expect(await readFile(join(dataDir, 'AAPL.json'), 'utf8')).toBe(aaplBytes);
+    expect(await readFile(join(dataDir, 'MSFT.json'), 'utf8')).toBe(msftBytes);
+  });
+
+  it('continues to SEC when a seed is invalid and reports unavailable if no prior pack exists', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'atlas-financial-seed-invalid-only-'));
+    roots.push(root);
+    const seedDirectory = join(root, 'seeds');
+    const dataDir = join(root, 'financial-data');
+    await mkdir(seedDirectory, { recursive: true });
+    await writeFile(join(seedDirectory, 'AAPL.json'), 'not a snapshot');
+    const client = { companyFacts: vi.fn(async () => { throw new Error('SEC HTTP 403'); }) };
+
+    const summary = await refreshFundamentals({
+      allowlist: ['AAPL'],
+      requested: ['AAPL'],
+      dataDir,
+      seedDirectory,
+      client,
+    });
+
+    expect(client.companyFacts).toHaveBeenCalledWith('AAPL');
+    expect(summary.symbols.AAPL).toMatchObject({ status: 'unavailable', error: 'SEC HTTP 403' });
+    await expect(readFile(join(dataDir, 'AAPL.json'))).rejects.toThrow();
+  });
+
+  it('atomically replaces an older valid output with a newer seed before the TTL check', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'atlas-financial-seed-newer-'));
+    roots.push(root);
+    const now = Math.floor(Date.now() / 1000);
+    const previous = snapshotFor('AAPL', now - 50 * 60 * 60);
+    const seed = snapshotFor('AAPL', now - 60 * 60);
+    const seedDirectory = join(root, 'seeds');
+    const dataDir = join(root, 'financial-data');
+    await writePack(seedDirectory, 'AAPL', seed);
+    await mkdir(dataDir, { recursive: true });
+    await writeFile(join(dataDir, 'AAPL.json'), JSON.stringify(previous));
+    const client = { companyFacts: vi.fn(async () => { throw new Error('fresh seed should not refresh'); }) };
+
+    const summary = await refreshFundamentals({
+      allowlist: ['AAPL'],
+      requested: ['AAPL'],
+      dataDir,
+      seedDirectory,
+      now: () => now * 1000,
+      client,
+    });
+
+    expect(client.companyFacts).not.toHaveBeenCalled();
+    expect(summary.symbols.AAPL).toMatchObject({ status: 'fresh', fetchedAt: seed.fetchedAt, generatedAt: seed.generatedAt });
+    expect(await readFile(join(dataDir, 'AAPL.json'), 'utf8')).toBe(JSON.stringify(seed));
+    await expect(readFile(join(dataDir, 'AAPL.json.tmp'))).rejects.toThrow();
+  });
+
   it('skips a valid pack within 24 hours and retains its complete contents and timestamps after failure', async () => {
     const root = await mkdtemp(join(tmpdir(), 'atlas-financial-retained-'));
     roots.push(root);
@@ -144,6 +359,7 @@ describe('SEC financial snapshot collector', () => {
       allowlist: ['AAPL'],
       requested: ['AAPL'],
       dataDir: join(root, 'financial-data'),
+      seedDirectory: join(root, 'missing-seeds'),
       now: () => time,
       client,
     };
@@ -186,6 +402,7 @@ describe('SEC financial snapshot collector', () => {
       allowlist: ['TSM', 'NVDA'],
       requested: ['TSM', 'NVDA'],
       dataDir: join(root, 'financial-data'),
+      seedDirectory: join(root, 'missing-seeds'),
       client,
     });
     expect(client.companyFacts).toHaveBeenCalledWith('TSM');
@@ -230,7 +447,13 @@ describe('SEC financial snapshot collector', () => {
         : null),
     };
 
-    const summary = await refreshFundamentals({ dataDir, manifestFile, client, now: () => Date.UTC(2026, 0, 1) });
+    const summary = await refreshFundamentals({
+      dataDir,
+      manifestFile,
+      seedDirectory: join(root, 'missing-seeds'),
+      client,
+      now: () => Date.UTC(2026, 0, 1),
+    });
 
     const queriedSymbols = client.companyFacts.mock.calls.map(([symbol]) => symbol);
     expect(queriedSymbols).toContain('TSM');
@@ -241,10 +464,13 @@ describe('SEC financial snapshot collector', () => {
     expect(summary.symbols.TSM).toMatchObject({ status: 'unsupported' });
 
     const explicitTaiwanClient = { companyFacts: vi.fn(async () => null) };
+    const explicitTaiwanSeedDirectory = join(root, 'explicit-taiwan-seeds');
+    await writePack(explicitTaiwanSeedDirectory, '2330.TW', snapshotFor());
     const explicitTaiwan = await refreshFundamentals({
       allowlist: ['2330.TW'],
       requested: ['2330.TW'],
       dataDir: join(root, 'explicit-taiwan'),
+      seedDirectory: explicitTaiwanSeedDirectory,
       client: explicitTaiwanClient,
       now: () => Date.UTC(2026, 0, 1),
     });
@@ -253,6 +479,7 @@ describe('SEC financial snapshot collector', () => {
       status: 'unsupported',
       error: 'SEC financial snapshots currently support US market tickers only.',
     });
+    await expect(readFile(join(root, 'explicit-taiwan/2330.TW.json'))).rejects.toThrow();
   });
 });
 

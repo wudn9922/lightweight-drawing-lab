@@ -1,5 +1,5 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { getMarketProfile, normalizeSymbol } from '../src/market-data/MarketDataProvider';
 import { FinancialNormalizer } from '../src/fundamentals/FinancialNormalizer';
 import { createSecClient, type SecClient } from '../src/fundamentals/SecClient';
@@ -30,6 +30,7 @@ export interface FinancialRefreshOptions {
   requested?: readonly string[];
   allowlist?: readonly string[];
   dataDir?: string;
+  seedDirectory?: string;
   manifestFile?: string;
   now?: () => number;
   client?: Pick<SecClient, 'companyFacts'>;
@@ -66,9 +67,10 @@ async function atomicWrite(path: string, value: unknown) {
   await rename(temporary, path);
 }
 
-async function readSnapshot(path: string): Promise<FinancialSnapshot | undefined> {
+async function readSnapshot(path: string, expectedSymbol: string): Promise<FinancialSnapshot | undefined> {
   try {
-    return financialSnapshotSchema.parse(JSON.parse(await readFile(path, 'utf8')));
+    const snapshot = financialSnapshotSchema.parse(JSON.parse(await readFile(path, 'utf8')));
+    return snapshot.symbol === expectedSymbol ? snapshot : undefined;
   } catch {
     return undefined;
   }
@@ -94,6 +96,7 @@ function errorText(error: unknown) {
 export async function refreshFundamentals(options: FinancialRefreshOptions = {}): Promise<FinancialRefreshSummary> {
   const now = options.now ?? Date.now;
   const dataDir = options.dataDir ?? 'public/financial-data';
+  const seedDirectory = options.seedDirectory ?? resolve('data/financial-snapshots');
   const manifestFile = options.manifestFile ?? join(dataDir, 'manifest.json');
   const allowlist = options.allowlist
     ? options.allowlist.map(normalizeSymbol)
@@ -124,19 +127,25 @@ export async function refreshFundamentals(options: FinancialRefreshOptions = {})
     for (const symbol of requested) {
       const attemptedAt = Math.floor(now() / 1000);
       const path = join(dataDir, `${symbol}.json`);
-      const previous = await readSnapshot(path);
       if (getMarketProfile(symbol).market !== 'US') {
-        const entry = entryFor('unsupported', attemptedAt, previous);
+        const entry = entryFor('unsupported', attemptedAt);
         entry.error = 'SEC financial snapshots currently support US market tickers only.';
         symbols[symbol] = entry;
         continue;
       }
-      if (previous && previous.symbol !== symbol) {
-        symbols[symbol] = {
-          ...entryFor('unavailable', attemptedAt),
-          error: 'Existing snapshot symbol mismatch; it was not replaced without a complete refresh.',
-        };
-        continue;
+
+      let previous = await readSnapshot(path, symbol);
+      const seedPath = join(seedDirectory, `${symbol}.json`);
+      if (resolve(seedPath) !== resolve(path)) {
+        const seed = await readSnapshot(seedPath, symbol);
+        if (seed && (!previous || seed.fetchedAt > previous.fetchedAt)) {
+          try {
+            await atomicWrite(path, seed);
+            previous = seed;
+          } catch {
+            // A seed copy failure is isolated to this issuer; continue with existing data or SEC.
+          }
+        }
       }
       if (previous && attemptedAt - previous.generatedAt < TTL_SECONDS) {
         symbols[symbol] = entryFor('fresh', attemptedAt, previous);
