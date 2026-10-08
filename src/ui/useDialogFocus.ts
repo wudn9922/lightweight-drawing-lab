@@ -1,10 +1,14 @@
 import { useEffect } from 'react';
 /** Native inert backgrounds plus a small focus loop keep the sheet keyboard-accessible. */
-export function useDialogFocus(open: boolean) {
+export function useDialogFocus(open: boolean, identity?: string) {
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
-    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    const dialog = identity
+      ? [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].find(
+          (candidate) => candidate.dataset.dialogFocus === identity,
+        )
+      : document.querySelector<HTMLElement>('[role="dialog"]');
     if (!dialog) return;
     const focusable = () =>
       [
@@ -35,5 +39,5 @@ export function useDialogFocus(open: boolean) {
       document.removeEventListener('keydown', trap);
       if (previous?.isConnected) previous.focus({ preventScroll: true });
     };
-  }, [open]);
+  }, [identity, open]);
 }

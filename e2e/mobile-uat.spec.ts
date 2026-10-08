@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { chooseDrawingTool } from './drawing-picker-helper';
 import { DemoProvider } from '../src/market-data/DemoProvider';
 import type { SymbolState } from '../src/storage/schema';
 
@@ -44,7 +45,7 @@ function mean(values: number[]) {
 }
 const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 });
 
-test('passive numeric legend, directional volume MA20 and external zoom preserve chart space', async ({
+test('passive numeric legend, directional volume MA20 and zoom actions preserve chart space', async ({
   page,
   isMobile,
 }) => {
@@ -77,14 +78,35 @@ test('passive numeric legend, directional volume MA20 and external zoom preserve
   await expect(legacy.locator('[data-volume-average]')).toHaveText(
     compact.format(mean(bars.slice(-20).map((b) => b.volume))),
   );
-  for (const label of ['Zoom in', 'Zoom out']) {
-    const box = (await page.getByRole('button', { name: label, exact: true }).boundingBox())!;
-    const host = (await chart.boundingBox())!;
-    expect(box.width).toBeGreaterThanOrEqual(44);
-    expect(box.height).toBeGreaterThanOrEqual(44);
-    expect(
-      box.x + box.width <= host.x || box.y + box.height <= host.y || box.y >= host.y + host.height,
-    ).toBe(true);
+  if (!isMobile) {
+    for (const label of ['Zoom in', 'Zoom out']) {
+      const box = (await page.getByRole('button', { name: label, exact: true }).boundingBox())!;
+      const host = (await chart.boundingBox())!;
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(
+        box.x + box.width <= host.x || box.y + box.height <= host.y || box.y >= host.y + host.height,
+      ).toBe(true);
+    }
+  } else {
+    const chartHeight = (await chart.boundingBox())!.height;
+    await page.getByRole('button', { name: 'Drawing Tools', exact: true }).click();
+    const picker = page.getByRole('dialog', { name: 'Drawing tools', exact: true });
+    await expect(picker).toBeVisible();
+    for (const label of ['Zoom in', 'Zoom out']) {
+      const button = picker.getByRole('button', { name: label, exact: true });
+      await expect(button).toBeVisible();
+      const box = (await button.boundingBox())!;
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(await button.evaluate((element) => element.closest('[data-testid="chart"]'))).toBeNull();
+    }
+    await page.keyboard.press('Escape');
+    await expect(picker).toBeHidden();
+    expect((await chart.boundingBox())!.height).toBeCloseTo(chartHeight, 0);
+    await expect(page.locator('.chart-status-quick-actions')).toBeHidden();
+    for (const label of ['Zoom in', 'Zoom out'])
+      await expect(page.getByRole('button', { name: label, exact: true })).toHaveCount(0);
   }
   for (const period of [8, 12, 20, 32, 43, 100]) await addMA(page, period);
   await expect(page.locator('.indicator-chip')).toHaveCount(8);
@@ -141,7 +163,7 @@ test('chart focus fallback keeps the engine, dialogs, drawing locks and viewport
   ).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(exit).toBeVisible();
-  await page.getByRole('button', { name: 'Horizontal Line', exact: true }).click();
+  await chooseDrawingTool(page, 'Horizontal Line');
   const box = (await page.getByTestId('chart').boundingBox())!;
   const x = box.x + box.width * 0.4,
     y = box.y + box.height * 0.4;

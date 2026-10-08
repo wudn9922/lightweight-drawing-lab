@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import { chooseDrawingTool } from './drawing-picker-helper';
 import { readFile } from 'node:fs/promises';
 import type { SymbolState } from '../src/storage/schema';
 
@@ -60,7 +61,7 @@ async function addVolume(page: Page) {
 
 async function addHorizontalLine(page: Page, timeframe: OwnedTimeframe, count: number) {
   const box = (await page.getByTestId('chart').boundingBox())!;
-  await page.getByRole('button', { name: 'Horizontal Line', exact: true }).click();
+  await chooseDrawingTool(page, 'Horizontal Line');
   await page.mouse.move(box.x + box.width * 0.45, box.y + box.height * 0.46);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.51, { steps: 8 });
@@ -138,7 +139,7 @@ export async function verifyTimeframeOwnership(page: Page) {
     symbols: SymbolState[];
   };
   const backupAapl = backup.symbols.find((state) => state.symbol === 'AAPL');
-  expect(backup.version).toBe(3);
+  expect(backup.version).toBe(4);
   expect(backupAapl?.indicators.map((indicator) => indicator.scope.timeframe)).toEqual([
     '1D',
     '1D',

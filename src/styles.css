@@ -385,6 +385,31 @@ h2 {
   gap: 8px;
   align-items: center;
 }
+.drawing-tools-launcher {
+  height: 44px;
+  min-width: 68px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 1px solid #2b405a;
+  border-radius: 7px;
+  background: #152235;
+  color: #aec3dd;
+  font-size: 11px;
+  font-weight: 600;
+}
+.drawing-tools-launcher:hover {
+  background: #1e2c40;
+  color: #d8eaff;
+}
+.drawing-tools-launcher.active {
+  border-color: #3b6591;
+  background: #1b3556;
+  color: #8dc2ff;
+}
 .chart-toolbar select {
   font-size: 10px;
   width: 143px;
@@ -393,29 +418,6 @@ h2 {
   flex: 1;
   display: flex;
   min-height: 0;
-}
-.drawing-rail {
-  overflow-y: auto;
-  scrollbar-width: none;
-  min-height: 0;
-  width: 52px;
-  flex-shrink: 0;
-  padding: 8px 4px;
-  display: flex;
-  align-items: center;
-  flex-direction: column;
-  gap: 4px;
-  border-right: 1px solid var(--line);
-  background: #101721;
-}
-.rail-divider {
-  height: 1px;
-  width: 27px;
-  background: #263347;
-  margin: 5px 0;
-}
-.rail-spacer {
-  flex: 1;
 }
 .chart-stage {
   flex: 1;
@@ -567,6 +569,7 @@ h2 {
 .chart-status {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 8px;
   padding: 11px 15px;
   font-size: 10px;
@@ -574,6 +577,15 @@ h2 {
   border-top: 1px solid #263144;
   background: #111a28;
   min-height: 35px;
+}
+.chart-status-quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.chart-status-quick-actions .icon-button {
+  width: 44px;
+  height: 44px;
 }
 .status-divider {
   color: #40516a;
@@ -953,6 +965,174 @@ h2 {
 .help-dialog li {
   margin: 7px 0;
 }
+.drawing-tool-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(14px, var(--safe-area-inset-top, env(safe-area-inset-top, 0px)))
+    max(14px, var(--safe-area-inset-right, env(safe-area-inset-right, 0px)))
+    max(14px, var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))
+    max(14px, var(--safe-area-inset-left, env(safe-area-inset-left, 0px)));
+  background: #030912c9;
+  overscroll-behavior: contain;
+}
+.drawing-tool-picker-backdrop.sheet-mode {
+  align-items: flex-end;
+  padding: max(0px, var(--safe-area-inset-top, env(safe-area-inset-top, 0px)))
+    max(0px, var(--safe-area-inset-right, env(safe-area-inset-right, 0px))) 0
+    max(0px, var(--safe-area-inset-left, env(safe-area-inset-left, 0px)));
+}
+.drawing-tool-picker {
+  display: flex;
+  flex-direction: column;
+  width: min(940px, 100%);
+  max-height: min(900px, 90dvh);
+  overflow: hidden;
+  padding: 14px 18px 18px;
+  border: 1px solid #3a4d66;
+  border-radius: 14px;
+  background: #121c2b;
+  box-shadow: 0 22px 70px #0009;
+  color: #d9e2ef;
+}
+.drawing-tool-picker-backdrop.sheet-mode .drawing-tool-picker {
+  width: 100%;
+  max-height: calc(100dvh - max(16px, var(--safe-area-inset-top, env(safe-area-inset-top, 0px))));
+  padding: 8px 14px calc(14px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  border-radius: 18px 18px 0 0;
+}
+.drawing-tool-picker-heading {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 54px;
+  border-bottom: 1px solid #2a394e;
+}
+.drawing-tool-picker-heading h2 {
+  margin: 0;
+}
+.drawing-tool-picker-heading p {
+  margin: 4px 0 0;
+  color: #91a4bd;
+  font-size: 10px;
+}
+.drawing-tool-utilities {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(8, minmax(44px, 1fr));
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 1px solid #2a394e;
+}
+.drawing-tool-utility {
+  display: flex;
+  min-width: 44px;
+  min-height: 48px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 1px solid #2b3a4f;
+  border-radius: 7px;
+  background: #172335;
+  color: #a9bbd3;
+  font-size: 9px;
+  white-space: nowrap;
+}
+.drawing-tool-utility:hover:not(:disabled),
+.drawing-tool-option:hover {
+  border-color: #416286;
+  background: #1b2c42;
+  color: #e0ecfb;
+}
+.drawing-tool-utility.active,
+.drawing-tool-option.active {
+  border-color: #4a78a8;
+  background: #1c385a;
+  color: #a8d0ff;
+}
+.drawing-tool-browser {
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(82px, 0.28fr) minmax(0, 1fr);
+  gap: 10px;
+  overflow: hidden;
+  padding: 12px 2px 2px;
+}
+.drawing-tool-categories {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 5px;
+  overflow-y: auto;
+  padding: 1px 2px 3px 0;
+  overscroll-behavior: contain;
+}
+.drawing-tool-category {
+  display: flex;
+  flex: 0 0 48px;
+  min-width: 0;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 7px;
+  border: 1px solid #293a50;
+  border-radius: 7px;
+  background: #162234;
+  color: #aebdd1;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.drawing-tool-category.active {
+  border-color: #26a4a4;
+  background: #087a80;
+  color: #f0ffff;
+  box-shadow: inset 3px 0 #72eeee;
+}
+.drawing-tool-options {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  align-content: start;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  overflow-y: auto;
+  padding: 1px 3px 3px 0;
+  overscroll-behavior: contain;
+}
+.drawing-tool-option {
+  min-width: 0;
+  min-height: 54px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 7px;
+  border: 1px solid #293a50;
+  border-radius: 7px;
+  background: #162234;
+  color: #b3c2d7;
+  font-size: 9px;
+  line-height: 1.3;
+  text-align: left;
+}
+.drawing-tool-option-icon {
+  display: inline-flex;
+  flex: 0 0 22px;
+  align-items: center;
+  justify-content: center;
+  color: #8eb9e8;
+}
+.drawing-tool-option > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .sr-only {
   position: absolute;
   width: 1px;
@@ -1017,6 +1197,12 @@ h2 {
 }
 @media (max-width: 1099px) {
   .details-panel {
+    display: none;
+  }
+  .chart-status-quick-actions {
+    display: none;
+  }
+  .chart-toolbar-right > .primary-button {
     display: none;
   }
   .chart-toolbar-right > .icon-button:not(.focus-toggle) {
@@ -1109,7 +1295,7 @@ h2 {
   .chart-toolbar {
     height: 54px;
     padding: 0 7px;
-    gap: 7px;
+    gap: 5px;
   }
   .symbol-title {
     gap: 0;
@@ -1142,17 +1328,42 @@ h2 {
     width: 44px;
     height: 44px;
   }
-  .drawing-rail {
-    width: 46px;
-    padding: 6px 1px;
-    gap: 1px;
-  }
-  .drawing-rail .icon-button {
+  .drawing-tools-launcher {
     width: 44px;
+    min-width: 44px;
     height: 44px;
+    flex-direction: column;
+    gap: 1px;
+    padding: 1px 2px;
   }
-  .rail-divider {
-    margin: 3px 0;
+  .drawing-tools-launcher > span {
+    font-size: 8px;
+    line-height: 10px;
+  }
+  .drawing-tool-picker-backdrop.desktop-mode {
+    padding: 0;
+  }
+  .drawing-tool-utilities {
+    grid-template-columns: repeat(4, minmax(44px, 1fr));
+    gap: 5px;
+  }
+  .drawing-tool-browser {
+    grid-template-columns: minmax(76px, 0.28fr) minmax(0, 1fr);
+    gap: 7px;
+    padding-top: 8px;
+  }
+  .drawing-tool-category {
+    flex-basis: 48px;
+    min-height: 44px;
+    padding: 5px 4px;
+    font-size: 10px;
+  }
+  .drawing-tool-options {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .drawing-tool-option {
+    min-height: 46px;
   }
   .chart-overlay {
     display: grid;
@@ -1294,17 +1505,6 @@ h2 {
   }
 }
 @media (max-height: 650px) {
-  .drawing-rail {
-    gap: 0;
-    padding-top: 1px;
-    padding-bottom: 1px;
-  }
-  .rail-divider {
-    display: none;
-  }
-  .drawing-rail .icon-button {
-    height: 44px;
-  }
   .chart-status {
     min-height: 25px;
     padding: 6px;
@@ -1904,6 +2104,9 @@ h2 {
 .app-shell.chart-focus .chart-status.has-drawing-controls {
   height: 48px;
   min-height: 48px;
+}
+.app-shell.chart-focus .chart-status-quick-actions {
+  display: none;
 }
 .app-shell.chart-focus .sheet-backdrop {
   z-index: 1100;

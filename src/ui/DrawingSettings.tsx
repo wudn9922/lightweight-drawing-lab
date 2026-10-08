@@ -58,6 +58,7 @@ export function DrawingSettings({
       if (locked) return;
       if (!/^#[0-9a-fA-F]{6}$/.test(draft.color)) throw new Error('Color must be a six-digit hex value.');
       if (!Number.isFinite(draft.lineWidth) || draft.lineWidth < 1 || draft.lineWidth > 4) throw new Error('Line width must be from 1 through 4.');
+      if (draft.widthMode !== undefined && draft.widthMode !== 'pixels' && draft.widthMode !== 'atr') throw new Error('Line width mode is invalid.');
       if (!Number.isFinite(draft.opacity) || draft.opacity! < 0 || draft.opacity! > 1) throw new Error('Opacity must be from 0 through 1.');
       if (filled && (!Number.isFinite(draft.fillOpacity) || draft.fillOpacity! < 0 || draft.fillOpacity! > 0.3)) throw new Error('Fill opacity must be from 0 through 0.3.');
       if (!levelsValid) throw new Error('Fibonacci levels must contain 2–32 distinct numbers from 0 through 1.');
@@ -105,7 +106,11 @@ export function DrawingSettings({
         </label>
         <label>
           Line width
-          <select aria-label="Drawing line width" value={draft.lineWidth} disabled={locked} onChange={(event) => setDraft({ ...draft, lineWidth: Number(event.target.value) })}>
+          <select aria-label="Drawing line width" value={draft.widthMode === 'atr' ? 'atr' : String(draft.lineWidth)} disabled={locked} onChange={(event) => {
+            const selected = event.target.value;
+            setDraft({ ...draft, widthMode: selected === 'atr' ? 'atr' : 'pixels', lineWidth: selected === 'atr' ? 1 : Number(selected) });
+          }}>
+            <option value="atr">0.02 ATR (14)</option>
             {[1, 2, 3, 4].map((width) => <option key={width} value={width}>{width}px</option>)}
           </select>
         </label>
@@ -167,7 +172,7 @@ export function DrawingSettings({
           <button type="button" onClick={() => { onCancelGesture(); store.mutateDrawing(drawing.id, 'lock'); }} style={{ minHeight: 44 }}>Unlock drawing</button>
         )}
       </form>
-      <p className="small muted">Style defaults apply to future drawings only; this edit changes only the selected drawing. Fibonacci defaults keep the standard seven levels; only matching default levels can be hidden in the saved style.</p>
+      <p className="small muted">ATR width maps 0.02 × 14-bar ATR through the price scale to a 0.5–4 CSS-pixel stroke, with at least one raster pixel. Native chart lines round to 1–4 px. New drawings use ATR by default, while saved drawings keep their current width mode. Style defaults apply to future drawings only; Fibonacci defaults keep the standard seven levels, and only matching default levels can be hidden.</p>
     </section>
   );
 }

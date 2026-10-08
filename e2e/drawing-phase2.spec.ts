@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { chooseDrawingTool, clickDrawingUtility } from './drawing-picker-helper';
 import type { SymbolState } from '../src/storage/schema';
 async function read(page: Page, symbol = 'AAPL'): Promise<SymbolState> {
   return page.evaluate(async (symbol) => {
@@ -69,7 +70,7 @@ for (const [name, kind] of [
         await page.mouse.up();
       }
     };
-    await page.getByRole('button', { name, exact: true }).click();
+    await chooseDrawingTool(page, name);
     // Precision placement can outlast the chart's native long-press threshold.
     await drag(a.x - 6, a.y - 8, a.x, a.y, isMobile, isMobile);
     await drag(b.x - 6, b.y - 8, b.x, b.y, isMobile);
@@ -98,13 +99,13 @@ for (const [name, kind] of [
     await expect
       .poll(async () => (await read(page)).drawings[0].points[0].price)
       .not.toBe(edited.points[0].price);
-    await page.getByRole('button', { name: 'Undo drawing', exact: true }).click();
+    await clickDrawingUtility(page, 'Undo drawing');
     await expect.poll(async () => (await read(page)).drawings[0].points).toEqual(edited.points);
-    await page.getByRole('button', { name: 'Redo drawing', exact: true }).click();
+    await clickDrawingUtility(page, 'Redo drawing');
     await page.getByRole('button', { name: 'Lock selected drawing', exact: true }).click();
     const locked = (await read(page)).drawings[0];
-    await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
-    await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
+    await clickDrawingUtility(page, 'Zoom out');
+    await clickDrawingUtility(page, 'Zoom in');
     await expect.poll(async () => (await read(page)).preferences.views['1D']).toBeDefined();
     const range = (await read(page)).preferences.views['1D'];
     await drag(mid + 8, bodyY + 12, mid + 45, bodyY + 12);
@@ -149,9 +150,9 @@ for (const [name, kind] of [
     await expect.poll(async () => (await read(page)).drawings.length).toBe(0);
     const close = page.getByRole('button', { name: 'Close panel', exact: true });
     if (await close.isVisible()) await close.click();
-    await page.getByRole('button', { name: 'Undo drawing', exact: true }).click();
+    await clickDrawingUtility(page, 'Undo drawing');
     await expect.poll(async () => (await read(page)).drawings.length).toBe(1);
-    await page.getByRole('button', { name: 'Redo drawing', exact: true }).click();
+    await clickDrawingUtility(page, 'Redo drawing');
     await expect.poll(async () => (await read(page)).drawings.length).toBe(0);
     expect(await page.evaluate(() => scrollY)).toBe(0);
   });
@@ -198,7 +199,7 @@ test('Rectangle four corners retain component ownership on desktop and touch', a
       await page.mouse.up();
     }
   };
-  await page.getByRole('button', { name: 'Rectangle', exact: true }).click();
+  await chooseDrawingTool(page, 'Rectangle');
   await drag(a.x, a.y, a.x, a.y);
   await drag(b.x, b.y, b.x, b.y);
   await expect.poll(async () => (await read(page))?.drawings.length).toBe(1);
@@ -221,7 +222,7 @@ test('Rectangle four corners retain component ownership on desktop and touch', a
     const changed = (await read(page)).drawings[0];
     expect(changed.points[1 - xIndex].time).toBe(initial.points[1 - xIndex].time);
     expect(changed.points[1 - yIndex].price).toBe(initial.points[1 - yIndex].price);
-    await page.getByRole('button', { name: 'Undo drawing', exact: true }).click();
+    await clickDrawingUtility(page, 'Undo drawing');
     await expect.poll(async () => (await read(page)).drawings[0].points).toEqual(initial.points);
   }
   expect(await page.evaluate(() => scrollY)).toBe(0);

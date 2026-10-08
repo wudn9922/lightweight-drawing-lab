@@ -1,19 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Activity,
-  ArrowUpRight,
   ChartNoAxesCombined,
   ChevronRight,
   Download,
   Upload,
   Search,
-  MousePointer2,
-  TrendingUp,
-  Minus,
-  Square,
-  ListFilter,
   FileBarChart,
-  Magnet,
   Undo2,
   Redo2,
   Expand,
@@ -49,6 +42,7 @@ import { toolNames, type ActiveTool } from '../drawing/DrawingModel';
 import { useDialogFocus } from '../ui/useDialogFocus';
 import { useChartFocus } from '../ui/useChartFocus';
 import { IconButton } from '../ui/IconButton';
+import { DrawingToolGlyph, DrawingToolPicker } from '../ui/DrawingToolPicker';
 import { Watchlist, companies } from '../ui/Watchlist';
 import { IndicatorPanel } from '../ui/IndicatorPanel';
 import { FinancialPanel } from '../ui/FinancialPanel';
@@ -111,6 +105,7 @@ export function App() {
     [eventsStatus, setEventsStatus] = useState('Corporate events: unavailable in Demo'),
     [sheet, setSheet] = useState<'watchlist' | Panel | null>(null),
     [help, setHelp] = useState(false),
+    [drawingPickerOpen, setDrawingPickerOpen] = useState(false),
     [reloadToken, setReloadToken] = useState(0);
   const right = state.app.workspace.rightOpen,
     rightTab = state.app.workspace.rightTab;
@@ -119,14 +114,14 @@ export function App() {
   const setRightTab = (rightTab: Panel) =>
     store.updateApp({ workspace: { ...store.getSnapshot().app.workspace, rightTab } });
   const tablet = mobile && window.innerWidth >= 768;
-  const modal = (!!sheet && !tablet) || help;
+  const modal = (!!sheet && !tablet) || help || drawingPickerOpen;
   const errors = useSyncExternalStore(errorLog.subscribe, errorLog.getSnapshot);
   const alertSession = useRef('');
   const financialRecords = useRef<{ symbol: string; records: CompanyFundamentals[] }>({
     symbol: '',
     records: [],
   });
-  useDialogFocus(modal);
+  useDialogFocus(modal, drawingPickerOpen ? 'drawing-tool-picker' : undefined);
   const chartFocus = useChartFocus<HTMLDivElement>();
   const hostRef = useRef<HTMLDivElement>(null),
     headerRef = useRef<HTMLDivElement>(null),
@@ -134,7 +129,18 @@ export function App() {
     sourceRef = useRef<HTMLDivElement>(null),
     timeframesRef = useRef<HTMLDivElement>(null),
     engine = useRef<ChartEngine | null>(null),
-    importRef = useRef<HTMLInputElement>(null);
+    importRef = useRef<HTMLInputElement>(null),
+    drawingLauncherRef = useRef<HTMLButtonElement>(null);
+  const closeDrawingPicker = useCallback(() => {
+    setDrawingPickerOpen(false);
+    requestAnimationFrame(() => drawingLauncherRef.current?.focus({ preventScroll: true }));
+  }, []);
+  const openDrawingPicker = useCallback(() => {
+    engine.current?.controller?.cancel();
+    setSheet(null);
+    setHelp(false);
+    setDrawingPickerOpen(true);
+  }, []);
   const centerActiveTimeframe = useCallback(() => {
     const strip = timeframesRef.current;
     const active = strip?.querySelector<HTMLButtonElement>('button[aria-pressed="true"]');
@@ -292,17 +298,29 @@ export function App() {
   useEffect(() => {
     const keyboard = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        const hadGesture = !!engine.current?.controller?.machine.gesture;
-        if (!sheet && !help && !hadGesture && tool === 'select' && !chartFocus.isFocused) return;
-        e.preventDefault();
-        engine.current?.controller?.cancel();
-        setTool('select');
-        if (sheet || help || hadGesture || tool !== 'select') {
-          if (sheet) setSheet(null);
-          if (help) setHelp(false);
+        const target = e.target as HTMLElement | null;
+        if (drawingPickerOpen) {
+          e.preventDefault();
+          engine.current?.controller?.cancel();
+          closeDrawingPicker();
           return;
         }
-        if (chartFocus.isFocused) void chartFocus.exit();
+        const hadGesture = !!engine.current?.controller?.machine.gesture;
+        if (sheet || help || hadGesture || chartFocus.isFocused) {
+          e.preventDefault();
+          engine.current?.controller?.cancel();
+          if (tool !== 'select') setTool('select');
+          if (sheet) setSheet(null);
+          if (help) setHelp(false);
+          if (!sheet && !help && !hadGesture && tool === 'select' && chartFocus.isFocused) void chartFocus.exit();
+          return;
+        }
+        if (target?.closest('input,select,textarea,[contenteditable]')) return;
+        if (tool !== 'select') {
+          e.preventDefault();
+          engine.current?.controller?.cancel();
+          setTool('select');
+        }
         return;
       }
       const target = e.target as HTMLElement | null;
@@ -321,7 +339,7 @@ export function App() {
     };
     window.addEventListener('keydown', keyboard);
     return () => window.removeEventListener('keydown', keyboard);
-  }, [selected, sheet, help, tool, chartFocus.isFocused, chartFocus.exit]);
+  }, [selected, sheet, help, drawingPickerOpen, closeDrawingPicker, tool, chartFocus.isFocused, chartFocus.exit]);
   useEffect(() => {
     const save = () => engine.current?.flushView();
     window.addEventListener('pagehide', save);
@@ -349,6 +367,19 @@ export function App() {
     engine.current?.controller?.setTool(next);
     setTool(next);
     setSheet(null);
+  };
+  const toggleMagnet = () =>
+    store.updateSymbol(symbol, (current) => ({
+      ...current,
+      preferences: { ...current.preferences, magnet: !current.preferences.magnet },
+    }));
+  const undoDrawing = () => {
+    engine.current?.controller?.cancel();
+    store.undo();
+  };
+  const redoDrawing = () => {
+    engine.current?.controller?.cancel();
+    store.redo();
   };
   const manageIndicators = () => {
     setRightTab('indicators');
@@ -698,6 +729,21 @@ export function App() {
               <ChevronRight size={13} />
               <span>{companies[symbol] ?? 'US Equity'}</span>
             </div>
+            <button
+              ref={drawingLauncherRef}
+              type="button"
+              className={`drawing-tools-launcher ${tool !== 'select' ? 'active' : ''}`}
+              aria-label="Drawing Tools"
+              aria-haspopup="dialog"
+              aria-expanded={drawingPickerOpen}
+              aria-pressed={tool !== 'select'}
+              data-active-tool={tool}
+              title={`Drawing Tools · ${tool === 'select' ? '選取 / 平移' : toolNames[tool]}`}
+              onClick={openDrawingPicker}
+            >
+              <DrawingToolGlyph tool={tool} />
+              <span>繪圖</span>
+            </button>
             <div className="timeframe-buttons" ref={timeframesRef}>
               {timeframes
                 .filter((t) => supportsTimeframe(providers[state.app.provider], t))
@@ -769,123 +815,6 @@ export function App() {
             </div>
           </div>
           <div className="chart-workspace">
-            <nav className="drawing-rail" aria-label="Drawing tools">
-              <IconButton
-                label="Select / Pan"
-                active={tool === 'select'}
-                onClick={() => chooseTool('select')}
-              >
-                <MousePointer2 size={19} />
-              </IconButton>
-              <IconButton
-                label="Zoom in"
-                className="rail-zoom"
-                onClick={() => engine.current?.zoom(0.8)}
-              >
-                <ZoomIn size={17} />
-              </IconButton>
-              <IconButton
-                label="Zoom out"
-                className="rail-zoom"
-                onClick={() => engine.current?.zoom(1.25)}
-              >
-                <ZoomOut size={17} />
-              </IconButton>
-              <div className="rail-divider" />
-              <IconButton
-                label="Trend Line"
-                active={tool === 'trend'}
-                onClick={() => chooseTool('trend')}
-              >
-                <TrendingUp size={20} />
-              </IconButton>
-              <IconButton
-                label="Horizontal Line"
-                active={tool === 'horizontal'}
-                onClick={() => chooseTool('horizontal')}
-              >
-                <Minus size={20} />
-              </IconButton>
-              <IconButton
-                label="Horizontal Ray"
-                active={tool === 'ray'}
-                onClick={() => chooseTool('ray')}
-              >
-                <ArrowUpRight size={20} />
-              </IconButton>
-              <IconButton
-                label="Rectangle"
-                active={tool === 'rectangle'}
-                onClick={() => chooseTool('rectangle')}
-              >
-                <Square size={20} />
-              </IconButton>
-              <IconButton
-                label="Fibonacci Retracement"
-                active={tool === 'fibonacci'}
-                onClick={() => chooseTool('fibonacci')}
-              >
-                <ListFilter size={20} />
-              </IconButton>
-              {(
-                ['channel', 'price-range', 'date-range', 'price-date-range', 'vertical'] as const
-              ).map((t) => (
-                <IconButton
-                  key={t}
-                  label={toolNames[t]}
-                  active={tool === t}
-                  onClick={() => chooseTool(t)}
-                >
-                  {t === 'channel' ? (
-                    <Layers size={19} />
-                  ) : t === 'vertical' ? (
-                    <Minus size={19} style={{ transform: 'rotate(90deg)' }} />
-                  ) : (
-                    <Square size={19} />
-                  )}
-                </IconButton>
-              ))}
-              <div className="rail-divider" />
-              <IconButton
-                label="Magnet"
-                active={s.preferences.magnet}
-                onClick={() =>
-                  store.updateSymbol(symbol, (s) => ({
-                    ...s,
-                    preferences: { ...s.preferences, magnet: !s.preferences.magnet },
-                  }))
-                }
-              >
-                <Magnet size={18} />
-              </IconButton>
-              <IconButton
-                label="Undo drawing"
-                disabled={!history.canUndo}
-                onClick={() => {
-                  engine.current?.controller?.cancel();
-                  store.undo();
-                }}
-              >
-                <Undo2 size={18} />
-              </IconButton>
-              <IconButton
-                label="Redo drawing"
-                disabled={!history.canRedo}
-                onClick={() => {
-                  engine.current?.controller?.cancel();
-                  store.redo();
-                }}
-              >
-                <Redo2 size={18} />
-              </IconButton>
-              <div className="rail-spacer" />
-              <IconButton label="Show future area" onClick={() => engine.current?.futureArea()}>
-                <ArrowUpRight size={19} />
-              </IconButton>
-              <IconButton label="Reset chart view" onClick={() => engine.current?.resetView()}>
-                <Expand size={18} />
-              </IconButton>
-            </nav>
             <div className="chart-stage">
               <div className="chart-overlay" role="group" aria-label={`${symbol} chart legend`}>
                 <div className="chart-heading">
@@ -984,6 +913,22 @@ export function App() {
                 ? '拖曳平移 · 滾輪／雙指縮放'
                 : `${toolNames[tool]} · 每個端點：按住 → 拖曳 → 放開`}
             </span>
+            {!mobile && (
+              <div className="chart-status-quick-actions" aria-label="Quick chart actions">
+                <IconButton label="Undo drawing" disabled={!history.canUndo} onClick={undoDrawing}>
+                  <Undo2 size={17} />
+                </IconButton>
+                <IconButton label="Redo drawing" disabled={!history.canRedo} onClick={redoDrawing}>
+                  <Redo2 size={17} />
+                </IconButton>
+                <IconButton label="Zoom in" onClick={() => engine.current?.zoom(0.8)}>
+                  <ZoomIn size={17} />
+                </IconButton>
+                <IconButton label="Zoom out" onClick={() => engine.current?.zoom(1.25)}>
+                  <ZoomOut size={17} />
+                </IconButton>
+              </div>
+            )}
             <span>
               {activeDrawings.length} DRAWINGS <span className="status-divider">/</span>{' '}
               {activeIndicators.length} INDICATORS
@@ -1132,6 +1077,24 @@ export function App() {
             2,
           )}
         </pre>
+      )}
+      {drawingPickerOpen && (
+        <DrawingToolPicker
+          activeTool={tool}
+          canRedo={history.canRedo}
+          canUndo={history.canUndo}
+          magnetEnabled={s.preferences.magnet}
+          mode={mobile ? 'sheet' : 'desktop'}
+          onClose={closeDrawingPicker}
+          onChooseTool={chooseTool}
+          onRedo={redoDrawing}
+          onResetView={() => engine.current?.resetView()}
+          onShowFuture={() => engine.current?.futureArea()}
+          onToggleMagnet={toggleMagnet}
+          onUndo={undoDrawing}
+          onZoomIn={() => engine.current?.zoom(0.8)}
+          onZoomOut={() => engine.current?.zoom(1.25)}
+        />
       )}
       {sheet && (
         <div

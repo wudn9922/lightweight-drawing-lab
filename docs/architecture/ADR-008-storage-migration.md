@@ -14,3 +14,7 @@ An enabled drawing alert whose timeframe does not match its migrated drawing is 
 Drawing history is keyed by symbol and timeframe, remains session-local, and stores only the edited timeframe bucket. Undo and redo merge that bucket into the latest symbol state so an edit in one timeframe cannot restore stale drawing records from another timeframe.
 
 Market data is disposable and bounded in a separate atlas-market-cache database with provider/symbol/timeframe/range identity and TTL; it is excluded from settings backup. Stale offline results are explicitly labelled. User settings persistence errors stay visible; cache quota failures never erase settings or hide a successful provider fetch.
+
+## Superseding workspace extension — v4 ATR width mode (2026-10-08)
+
+[ADR-012](ADR-012-drawing-picker-and-atr-strokes.md) extends settings storage from v3 to v4 to preserve optional `widthMode: 'pixels' | 'atr'` for drawings and SMA/EMA. Existing `lineWidth` remains the pixel fallback, and legacy fixed widths are not rewritten. IndexedDB v1/v2/v3 upgrades and settings v1/v2/v3 imports validate and replace data atomically; v3 timeframe ownership, IDs, anchors, prices, styles, presets, locks and preferences remain intact. Market snapshot schema version 3 is independent and unchanged. Full v4 migration and picker verification remains pending in the current workspace checkpoint.

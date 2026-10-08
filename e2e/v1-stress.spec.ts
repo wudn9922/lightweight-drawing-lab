@@ -1,5 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { chooseDrawingTool, clickDrawingUtility } from './drawing-picker-helper';
 import { DEFAULT_FIB_LEVELS } from '../src/tools/Fibonacci';
 import { DemoProvider } from '../src/market-data/DemoProvider';
 import type { Anchor, Drawing, ToolKind } from '../src/drawing/DrawingModel';
@@ -226,9 +227,9 @@ test('V1 stress: 2,500 Demo bars, eight mixed averages and 100 mixed drawings ke
     ),
   ).toBe(true);
 
-  await page.getByRole('button', { name: 'Select / Pan', exact: true }).click();
-  await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
-  await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
+  await clickDrawingUtility(page, 'Select / Pan');
+  await clickDrawingUtility(page, 'Zoom in');
+  await clickDrawingUtility(page, 'Zoom out');
   await expect.poll(async () => (await readSymbol(page))?.preferences.views['1D']).toBeDefined();
   const beforePan = (await readSymbol(page))!.preferences.views['1D'];
   const chart = (await page.getByTestId('chart').locator('canvas').first().boundingBox())!;
@@ -241,8 +242,8 @@ test('V1 stress: 2,500 Demo bars, eight mixed averages and 100 mixed drawings ke
   await expect
     .poll(async () => (await readSymbol(page))?.preferences.views['1D'])
     .not.toEqual(beforePan);
-  await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
-  await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
+  await clickDrawingUtility(page, 'Zoom in');
+  await clickDrawingUtility(page, 'Zoom out');
   await expect(page.locator('.chart-loading')).toHaveCount(0);
   expect((await readSymbol(page))!.drawings).toEqual(migratedDrawings);
 
@@ -256,7 +257,7 @@ test('V1 stress: 2,500 Demo bars, eight mixed averages and 100 mixed drawings ke
     x: editingPlot.x + editingPlot.width * 0.6,
     y: editingPlot.y + editingPlot.height * 0.74,
   };
-  await page.getByRole('button', { name: 'Trend Line', exact: true }).click();
+  await chooseDrawingTool(page, 'Trend Line');
   for (const point of [first, second]) {
     await page.mouse.move(point.x - 6, point.y - 6);
     await page.mouse.down();

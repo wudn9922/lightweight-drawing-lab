@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { clickDrawingUtility } from './drawing-picker-helper';
 import { writeFile } from 'node:fs/promises';
 test('2,500 bars + 8 SMAs + 100 drawings remain operable; record headless RAF scheduling only', async ({
   page,
@@ -78,8 +79,8 @@ test('2,500 bars + 8 SMAs + 100 drawings remain operable; record headless RAF sc
   const r = (await page.getByTestId('chart').boundingBox())!;
   for (let i = 0; i < 90; i++)
     await page.mouse.move(r.x + 80 + (i % 50) * 8, r.y + r.height * 0.55 + Math.sin(i / 8) * 40);
-  await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
-  await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
+  await clickDrawingUtility(page, 'Zoom in');
+  await clickDrawingUtility(page, 'Zoom out');
   await expect
     .poll(() => page.evaluate(() => !!(window as unknown as { __rafGaps?: number[] }).__rafGaps))
     .toBe(true);

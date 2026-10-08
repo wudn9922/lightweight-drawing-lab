@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { chooseDrawingTool } from './drawing-picker-helper';
 import { readFileSync } from 'node:fs';
 import { FinancialNormalizer } from '../src/fundamentals/FinancialNormalizer';
 import type { FinancialPeriod } from '../src/fundamentals/FundamentalsProvider';
@@ -100,7 +101,7 @@ test('SEC financial UI: four company patterns, annual/quarterly, statements, pro
   await close(page);
   expect((await page.getByTestId('chart').boundingBox())!.height).toBe(chartBox.height);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.getByRole('button', { name: 'Horizontal Line', exact: true }).click();
+  await chooseDrawingTool(page, 'Horizontal Line');
   const r = (await page.getByTestId('chart').boundingBox())!;
   await page.mouse.move(r.x + r.width * 0.5, r.y + r.height * 0.5);
   await page.mouse.down();

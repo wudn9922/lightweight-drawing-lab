@@ -7,6 +7,8 @@ export const timeframeSchema = z.enum(timeframes);
 export type Timeframe = z.infer<typeof timeframeSchema>;
 const tf = timeframeSchema;
 const color = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+const widthMode = z.enum(['pixels', 'atr']);
+export type StrokeWidthMode = z.infer<typeof widthMode>;
 const tool = z.enum(['trend', 'horizontal', 'ray', 'rectangle', 'fibonacci', 'channel', 'price-range', 'date-range', 'price-date-range', 'vertical']);
 const drawingStyleFields = {
   color,
@@ -17,7 +19,8 @@ const drawingStyleFields = {
   labelsVisible: z.boolean().optional(),
   hiddenLevels: z.array(finite.min(0).max(1)).max(32).optional(),
 };
-export const drawingStyleSchema = z.object(drawingStyleFields);
+const v3DrawingStyleSchema = z.object(drawingStyleFields);
+export const drawingStyleSchema = z.object({ ...drawingStyleFields, widthMode: widthMode.optional() });
 export const anchorSchema = z.object({
   time: finite.min(1).max(32503680000),
   logical: finite,
@@ -64,11 +67,17 @@ export const drawingSchema = drawingRules(z.object({
   ...drawingFields,
   scope: z.object({ timeframes: z.array(tf).length(1) }),
 }));
+const v3DrawingSchema = drawingRules(z.object({
+  ...drawingFields,
+  style: v3DrawingStyleSchema,
+  scope: z.object({ timeframes: z.array(tf).length(1) }),
+}));
 const legacyDrawingSchema = drawingRules(z.object({
   ...drawingFields,
+  style: v3DrawingStyleSchema,
   scope: z.object({ timeframes: z.union([z.literal('all'), z.array(tf)]) }),
 }));
-export const indicatorSchema = z.object({
+const v3IndicatorSchema = z.object({
   id: z.string().min(1).max(100),
   symbol,
   type: z.enum(['SMA', 'EMA', 'Volume']),
@@ -80,7 +89,14 @@ export const indicatorSchema = z.object({
   color,
   scope: z.object({ timeframe: tf }),
 });
-const legacyIndicatorSchema = indicatorSchema.extend({ scope: z.object({ timeframe: tf.optional() }) });
+const indicatorWithWidthModeSchema = v3IndicatorSchema.extend({ widthMode: widthMode.optional() });
+function validateIndicatorWidthMode(indicator: { type: 'SMA' | 'EMA' | 'Volume'; widthMode?: StrokeWidthMode }, c: z.RefinementCtx) {
+    if (indicator.type === 'Volume' && indicator.widthMode === 'atr') {
+      c.addIssue({ code: 'custom', message: 'Volume indicators cannot use ATR width mode' });
+    }
+}
+export const indicatorSchema = indicatorWithWidthModeSchema.superRefine(validateIndicatorWidthMode);
+const legacyIndicatorSchema = v3IndicatorSchema.extend({ scope: z.object({ timeframe: tf.optional() }) });
 const range = z.object({ from: finite, to: finite, barCount: z.number().int().positive().optional() })
   .refine(v => v.to > v.from && v.to - v.from <= 100000);
 const ownershipMigrationSchema = z.object({
@@ -127,6 +143,21 @@ export const symbolStateSchema = z.object({
     if (count > 100) c.addIssue({ code: 'custom', message: `More than 100 indicators in ${timeframe}` });
   }
 });
+const v3SymbolStateSchema = z.object({
+  symbol,
+  drawings: z.array(v3DrawingSchema).max(10000),
+  indicators: z.array(v3IndicatorSchema).max(800),
+  preferences: preferencesSchema,
+}).superRefine((s, c) => {
+  stateRelations(s, c);
+  const counts = new Map<Timeframe, number>();
+  for (const indicator of s.indicators) {
+    const timeframe = indicator.scope.timeframe;
+    const count = (counts.get(timeframe) ?? 0) + 1;
+    counts.set(timeframe, count);
+    if (count > 100) c.addIssue({ code: 'custom', message: `More than 100 indicators in ${timeframe}` });
+  }
+});
 const legacySymbolStateSchema = z.object({
   symbol,
   drawings: z.array(legacyDrawingSchema).max(10000),
@@ -158,7 +189,11 @@ const presetFields = {
 };
 const presetSchema = z.object({
   ...presetFields,
-  indicators: z.array(indicatorSchema.omit({ id: true, symbol: true })).max(100),
+  indicators: z.array(indicatorWithWidthModeSchema.omit({ id: true, symbol: true }).superRefine(validateIndicatorWidthMode)).max(100),
+});
+const v3PresetSchema = z.object({
+  ...presetFields,
+  indicators: z.array(v3IndicatorSchema.omit({ id: true, symbol: true })).max(100),
 });
 const legacyPresetSchema = z.object({
   ...presetFields,
@@ -178,6 +213,10 @@ const appFields = {
   alerts: z.array(alertSchema).max(1000).default([]),
   workspace: workspaceSchema.default({ rightOpen: true, rightTab: 'indicators', debug: false }),
 };
+const v3AppFields = {
+  ...appFields,
+  drawingDefaults: z.partialRecord(tool, v3DrawingStyleSchema).default({}),
+};
 function appRelations(a: { watchlist: string[]; alerts: { id: string }[]; indicatorPresets: { id: string }[] }, c: z.RefinementCtx) {
   if (new Set(a.watchlist).size !== a.watchlist.length) c.addIssue({ code: 'custom', message: 'Duplicate watchlist symbol' });
   for (const list of [a.alerts, a.indicatorPresets]) {
@@ -188,8 +227,12 @@ export const appSchema = z.object({
   ...appFields,
   indicatorPresets: z.array(presetSchema).max(100).default([]),
 }).superRefine(appRelations);
+const v3AppSchema = z.object({
+  ...v3AppFields,
+  indicatorPresets: z.array(v3PresetSchema).max(100).default([]),
+}).superRefine(appRelations);
 const legacyAppSchema = z.object({
-  ...appFields,
+  ...v3AppFields,
   indicatorPresets: z.array(legacyPresetSchema).max(100).default([]),
 }).superRefine(appRelations);
 export type SymbolState = z.infer<typeof symbolStateSchema>;
@@ -203,6 +246,7 @@ export function emptySymbol(symbolName: string): SymbolState {
 }
 
 const envelope = { exportedAt: z.string(), app: appSchema, symbols: z.array(symbolStateSchema).max(1000) };
+const v3Envelope = { exportedAt: z.string(), app: v3AppSchema, symbols: z.array(v3SymbolStateSchema).max(1000) };
 function validDrawingAlert(d: SymbolState['drawings'][number] | undefined, timeframe: Timeframe) {
   return !!d && (d.type === 'horizontal' || d.type === 'ray') && d.scope.timeframes.includes(timeframe);
 }
@@ -214,7 +258,9 @@ function checkExportRelations(d: { app: AppSettings; symbols: SymbolState[] }, c
     if (!validDrawingAlert(drawing, alert.timeframe)) c.addIssue({ code: 'custom', message: 'Orphan or out-of-scope drawing alert' });
   }
 }
-const exportEnvelope = z.object({ version: z.literal(3), ...envelope });
+const v3ExportEnvelope = z.object({ version: z.literal(3), ...v3Envelope });
+export const exportSchemaV3 = v3ExportEnvelope.superRefine(checkExportRelations);
+const exportEnvelope = z.object({ version: z.literal(4), ...envelope });
 export const exportSchema = exportEnvelope.superRefine(checkExportRelations);
 
 const legacyEnvelopeFields = {
@@ -285,7 +331,7 @@ function migrateLegacyAlerts(app: AppSettings, symbols: SymbolState[]): AppSetti
 function upgradeLegacyEnvelope(parsed: { exportedAt: string; app: LegacyAppSettings; symbols: LegacySymbolState[] }, version: 1 | 2): SettingsExport {
   const symbols = parsed.symbols.map(state => migrateSymbolState(state, version));
   const app = migrateLegacyAlerts(migrateLegacyApp(parsed.app, symbols), symbols);
-  return exportSchema.parse({ version: 3, exportedAt: parsed.exportedAt, app, symbols });
+  return exportSchema.parse({ version: 4, exportedAt: parsed.exportedAt, app, symbols });
 }
 
 export function upgradeLegacySettings(data: unknown, version: 1 | 2): SettingsExport {
@@ -294,10 +340,16 @@ export function upgradeLegacySettings(data: unknown, version: 1 | 2): SettingsEx
   return upgradeLegacyEnvelope(parsed, version);
 }
 
+export function upgradeV3Settings(data: unknown): SettingsExport {
+  const parsed = exportSchemaV3.parse(data);
+  return exportSchema.parse({ ...parsed, version: 4 });
+}
+
 export function parseSettings(json: string): SettingsExport {
   if (json.length > 10_000_000) throw new Error('Import exceeds 10 MB');
   const data: unknown = JSON.parse(json);
   const version = z.object({ version: z.number().int() }).parse(data).version;
   if (version === 1 || version === 2) return upgradeLegacySettings(data, version);
+  if (version === 3) return upgradeV3Settings(data);
   return exportSchema.parse(data);
 }

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { chooseDrawingTool, clickDrawingUtility } from './drawing-picker-helper';
 import type { SymbolState } from '../src/storage/schema';
 async function readSymbol(page: Page, symbol = 'AAPL'): Promise<SymbolState | undefined> {
   return page.evaluate(async (s) => {
@@ -56,7 +57,7 @@ test('per-symbol multiple SMA locks and drawing persistence survive symbol switc
   await page.getByRole('button', { name: 'Lock SMA 24', exact: true }).click();
   await addMA(page, 58);
   await closeSheet(page);
-  await page.getByRole('button', { name: 'Trend Line', exact: true }).click();
+  await chooseDrawingTool(page, 'Trend Line');
   const r = (await page.getByTestId('chart').boundingBox())!;
   const x = r.x + Math.min(130, r.width * 0.3),
     y = r.y + r.height * 0.45;
@@ -91,7 +92,7 @@ test('press-drag-release, endpoint and body edits, undo/redo, locked pan and tim
   const r = (await page.getByTestId('chart').boundingBox())!,
     a = { x: r.x + r.width * 0.35, y: r.y + r.height * 0.5 },
     b = { x: r.x + r.width * 0.65, y: r.y + r.height * 0.63 };
-  await page.getByRole('button', { name: 'Trend Line', exact: true }).click();
+  await chooseDrawingTool(page, 'Trend Line');
   await drag(page, a.x - 20, a.y - 20, a.x, a.y);
   await drag(page, b.x - 20, b.y - 20, b.x, b.y);
   await expect.poll(async () => (await readSymbol(page))?.drawings.length).toBe(1);
@@ -111,11 +112,11 @@ test('press-drag-release, endpoint and body edits, undo/redo, locked pan and tim
   await expect
     .poll(async () => (await readSymbol(page))?.drawings[0].points[1].price)
     .not.toBe(edited.points[1].price);
-  await page.getByRole('button', { name: 'Undo drawing', exact: true }).click();
+  await clickDrawingUtility(page, 'Undo drawing');
   await expect
     .poll(async () => (await readSymbol(page))?.drawings[0].points)
     .toEqual(edited.points);
-  await page.getByRole('button', { name: 'Redo drawing', exact: true }).click();
+  await clickDrawingUtility(page, 'Redo drawing');
   await expect
     .poll(async () => (await readSymbol(page))?.drawings[0].points[1].price)
     .not.toBe(edited.points[1].price);
@@ -147,7 +148,7 @@ test('Horizontal Line, export/import and locked SMA UI guards', async ({ page })
   await page.getByRole('button', { name: 'Hide SMA 24', exact: true }).click();
   await closeSheet(page);
   const r = (await page.getByTestId('chart').boundingBox())!;
-  await page.getByRole('button', { name: 'Horizontal Line', exact: true }).click();
+  await chooseDrawingTool(page, 'Horizontal Line');
   await drag(
     page,
     r.x + r.width * 0.7,
@@ -201,7 +202,7 @@ test('mobile touch placement loupe, pointer cancel and no page scroll', async ({
   const r = (await page.getByTestId('chart').boundingBox())!,
     x = r.x + r.width * 0.35,
     y = r.y + r.height * 0.5;
-  await page.getByRole('button', { name: 'Trend Line', exact: true }).click();
+  await chooseDrawingTool(page, 'Trend Line');
   if (browserName === 'chromium') {
     const cdp = await page.context().newCDPSession(page);
     const touch = async (
@@ -231,11 +232,11 @@ test('mobile touch placement loupe, pointer cancel and no page scroll', async ({
     await touch('touchCancel');
     await expect(page.getByTestId('loupe')).toBeHidden();
     const drawingBeforePinch = (await readSymbol(page))!.drawings;
-    await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
-    await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
+    await clickDrawingUtility(page, 'Zoom out');
+    await clickDrawingUtility(page, 'Zoom in');
     await expect.poll(async () => (await readSymbol(page))?.preferences.views['1D']).toBeDefined();
     const rangeBeforePinch = (await readSymbol(page))!.preferences.views['1D']!;
-    await page.getByRole('button', { name: 'Trend Line', exact: true }).click();
+    await chooseDrawingTool(page, 'Trend Line');
     await touch('touchStart', x - 25, y);
     await expect(page.getByTestId('loupe')).toBeVisible();
     await cdp.send('Input.dispatchTouchEvent', {

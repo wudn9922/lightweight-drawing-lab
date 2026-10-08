@@ -3,7 +3,7 @@ import { openDB } from 'idb';
 import { it, expect, vi } from 'vitest';
 import { IndexedDBStore } from '../src/storage/IndexedDBStore';
 import { AppStore } from '../src/app/AppStore';
-import { appSchema, emptySymbol, parseSettings, alertSchema, legacyVolumeEnabled } from '../src/storage/schema';
+import { appSchema, emptySymbol, parseSettings, alertSchema, legacyVolumeEnabled, exportSchemaV3 } from '../src/storage/schema';
 const ma = (symbol: string, period: number) => ({
   id: crypto.randomUUID(),
   symbol,
@@ -41,7 +41,7 @@ it('migrates actual database v1 without losing symbol indicators/locks/order and
   expect(store.symbol('NVDA').indicators.map((i) => i.period)).toEqual([43, 56]);
   expect(store.symbol('NVDA').indicators.every((i) => i.locked)).toBe(true);
   const backup = await store.export();
-  expect(backup.version).toBe(3);
+  expect(backup.version).toBe(4);
   expect(backup.app.alerts).toEqual([]);
   expect(
     parseSettings(JSON.stringify({ version: 1, exportedAt: 'legacy', app, symbols })).symbols,
@@ -55,11 +55,112 @@ it('migrates actual database v1 without losing symbol indicators/locks/order and
   })));
   await db.close();
   const reopened = await openDB(name);
-  expect(reopened.version).toBe(3);
+  expect(reopened.version).toBe(4);
   reopened.close();
 });
 
-it('migrates v2 timeframe ownership and imports legacy v1/v2 backups as v3 without losing drawing state', async () => {
+it('upgrades a v3 database to v4 without changing its validated records', async () => {
+  const name = 'v3-upgrade-' + crypto.randomUUID();
+  const drawing = {
+    id: 'retained-level', symbol: 'AAPL', type: 'horizontal' as const,
+    points: [{ time: 1_700_000_000, logical: 42, price: 123.45, timeframe: '1D' as const }],
+    locked: true, visible: false, scope: { timeframes: ['1D'] as '1D'[] },
+    style: { color: '#123456', lineWidth: 3, opacity: 0.65 },
+  };
+  const state = {
+    ...emptySymbol('AAPL'),
+    drawings: [drawing],
+    indicators: [{ ...ma('AAPL', 24), scope: { timeframe: '1D' as const } }],
+    preferences: {
+      timeframe: '1D' as const,
+      views: { '1D': { from: 1_700_000_000, to: 1_700_050_000, barCount: 400 } },
+      magnet: true,
+      volumeOverrides: { '1D': false },
+      ownershipMigration: { fromVersion: 2 as const, indicatorHome: '1D' as const, drawingRule: 'first-anchor' as const },
+    },
+  };
+  const app = appSchema.parse({
+    watchlist: ['AAPL'], activeSymbol: 'AAPL', provider: 'demo', recentSymbols: ['AAPL'],
+    drawingDefaults: { trend: { color: '#abcdef', lineWidth: 2, opacity: 0.45 } },
+    alerts: [alertSchema.parse({
+      id: 'retained-alert', symbol: 'AAPL', timeframe: '1D', kind: 'drawing',
+      drawingId: drawing.id, direction: 'cross', enabled: true,
+    })],
+    indicatorPresets: [{
+      id: 'retained-preset', name: 'Legacy line', indicators: [{
+        type: 'SMA', period: 24, source: 'close', visible: true, locked: false,
+        lineWidth: 2, color: '#123456', scope: { timeframe: '1D' },
+      }],
+    }],
+    workspace: { rightOpen: false, rightTab: 'alerts', debug: true },
+  });
+  const v3 = exportSchemaV3.parse({ version: 3, exportedAt: 'old-v3', app, symbols: [state] });
+  const parsedBackup = parseSettings(JSON.stringify(v3));
+  expect(parsedBackup).toEqual({ ...v3, version: 4 });
+  const old = await openDB(name, 3, {
+    upgrade(db) {
+      db.createObjectStore('symbols', { keyPath: 'symbol' });
+      db.createObjectStore('app');
+    },
+  });
+  await old.put('app', v3.app, 'settings');
+  await old.put('symbols', v3.symbols[0]);
+  old.close();
+
+  const storage = new IndexedDBStore(name);
+  const loaded = await storage.load();
+  expect(loaded.app).toEqual(v3.app);
+  expect(loaded.symbols).toEqual(v3.symbols);
+  const backup = await storage.export();
+  expect(backup).toEqual({ ...v3, version: 4, exportedAt: backup.exportedAt });
+  await storage.close();
+
+  const reopened = await openDB(name);
+  expect(reopened.version).toBe(4);
+  expect(await reopened.get('app', 'settings')).toEqual(v3.app);
+  expect(await reopened.get('symbols', 'AAPL')).toEqual(v3.symbols[0]);
+  reopened.close();
+
+  const target = new AppStore(new IndexedDBStore('v3-import-' + crypto.randomUUID()));
+  await target.initialize();
+  await target.import(JSON.stringify(v3));
+  const imported = await target.export();
+  expect(imported.version).toBe(4);
+  expect(imported.app).toEqual(v3.app);
+  expect(imported.symbols).toEqual(v3.symbols);
+  await target.storage.close();
+});
+
+it('aborts an invalid v3 database upgrade without changing its version or records', async () => {
+  const name = 'bad-v3-' + crypto.randomUUID();
+  const app = appSchema.parse({
+    watchlist: ['AAPL'], activeSymbol: 'AAPL', provider: 'demo',
+    alerts: [alertSchema.parse({
+      id: 'orphan-alert', symbol: 'AAPL', timeframe: '1D', kind: 'drawing',
+      drawingId: 'missing', direction: 'cross', enabled: true,
+    })],
+  });
+  const state = emptySymbol('AAPL');
+  const old = await openDB(name, 3, {
+    upgrade(db) {
+      db.createObjectStore('symbols', { keyPath: 'symbol' });
+      db.createObjectStore('app');
+    },
+  });
+  await old.put('app', app, 'settings');
+  await old.put('symbols', state);
+  old.close();
+
+  const storage = new IndexedDBStore(name);
+  await expect(storage.load()).rejects.toThrow();
+  const untouched = await openDB(name, 3);
+  expect(untouched.version).toBe(3);
+  expect(await untouched.get('app', 'settings')).toEqual(app);
+  expect(await untouched.get('symbols', 'AAPL')).toEqual(state);
+  untouched.close();
+});
+
+it('migrates v2 timeframe ownership and imports legacy v1/v2 backups as v4 without losing drawing state', async () => {
   const name = 'legacy-v2-' + crypto.randomUUID();
   const globalLine = {
     id: 'global-line', symbol: 'AAPL', type: 'horizontal' as const,
@@ -119,12 +220,12 @@ it('migrates v2 timeframe ownership and imports legacy v1/v2 backups as v3 witho
     { id: 'match', enabled: true },
   ]);
   const exported = await store.export();
-  expect(exported.version).toBe(3);
+  expect(exported.version).toBe(4);
   expect(exported.symbols[0].drawings).toHaveLength(3);
 
   for (const version of [1, 2] as const) {
     const parsed = parseSettings(JSON.stringify({ ...legacyV2, version }));
-    expect(parsed.version).toBe(3);
+    expect(parsed.version).toBe(4);
     expect(parsed.symbols[0].indicators[0].scope.timeframe).toBe('1W');
     expect(parsed.symbols[0].drawings.map(d => d.scope.timeframes)).toEqual([['1D'], ['1D'], ['1W']]);
   }
@@ -269,7 +370,7 @@ it('re-enabling a missing drawing reference invalidates safely before backup', a
     enabled: false,
     invalidReason: 'Referenced drawing was deleted',
   });
-  await expect(store.export()).resolves.toHaveProperty('version', 3);
+  await expect(store.export()).resolves.toHaveProperty('version', 4);
   await db.close();
 });
 

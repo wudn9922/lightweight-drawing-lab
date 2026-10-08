@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { chooseDrawingTool } from '../e2e/drawing-picker-helper';
 import { readFileSync } from 'node:fs';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
@@ -175,7 +176,7 @@ test('project-path PWA preserves scope, drawings, isolated MAs and portable back
   await page.getByRole('button', { name: 'Lock SMA 24', exact: true }).click();
   await addMA(page, 58);
   await closePanel(page);
-  await page.getByRole('button', { name: 'Horizontal Line', exact: true }).click();
+  await chooseDrawingTool(page, 'Horizontal Line');
   const box = (await page.getByTestId('chart').boundingBox())!;
   const x = box.x + box.width * 0.45,
     y = box.y + box.height * 0.45;

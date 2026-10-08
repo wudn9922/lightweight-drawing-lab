@@ -1,4 +1,5 @@
 import type { Bar, Timeframe } from '../market-data/MarketDataProvider';
+import type { WidthMode } from '../chart/StrokeWidth';
 export type PriceSource = 'open' | 'high' | 'low' | 'close';
 export interface IndicatorInstance {
   id: string;
@@ -9,6 +10,7 @@ export interface IndicatorInstance {
   visible: boolean;
   locked: boolean;
   lineWidth: 1 | 2 | 3 | 4;
+  widthMode?: WidthMode;
   color: string;
   scope: { timeframe?: Timeframe };
 }

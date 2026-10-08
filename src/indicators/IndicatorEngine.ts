@@ -10,11 +10,15 @@ import { ema } from './ExponentialMovingAverage';
 import { sma } from './MovingAverage';
 import { coloredVolume, volume, volumeSma, VOLUME_SMA_PERIOD } from './Volume';
 import type { Bar, Timeframe } from '../market-data/MarketDataProvider';
+import { nativeLineWidth, resolveStrokeWidth, type PriceToCoordinate } from '../chart/StrokeWidth';
 
 type LineEntry = {
   kind: 'Line';
   type: IndicatorType;
   api: ISeriesApi<'Line'>;
+  widthMode: IndicatorInstance['widthMode'];
+  fallbackLineWidth: IndicatorInstance['lineWidth'];
+  appliedLineWidth: IndicatorInstance['lineWidth'];
   signature: string;
   visible: boolean;
   values: Map<number, number>;
@@ -79,11 +83,15 @@ export class IndicatorEngine {
           kind: 'Line',
           type: instance.type,
           api: this.chart.addSeries(LineSeries, {
+            lineWidth: instance.lineWidth,
             priceLineVisible: false,
             lastValueVisible: false,
             crosshairMarkerVisible: false,
             title: '',
           }),
+          widthMode: instance.widthMode,
+          fallbackLineWidth: instance.lineWidth,
+          appliedLineWidth: instance.lineWidth,
           signature: '',
           visible: instance.visible,
           values: new Map(),
@@ -125,11 +133,19 @@ export class IndicatorEngine {
       if (!entry) continue;
       entry.visible = instance.visible;
       if (entry.kind === 'Line') {
-        entry.api.applyOptions({
+        entry.widthMode = instance.widthMode;
+        entry.fallbackLineWidth = instance.lineWidth;
+        const options: { color: string; visible: boolean; title: string; lineWidth?: 1 | 2 | 3 | 4 } = {
           color: instance.color,
-          lineWidth: instance.lineWidth,
           visible: instance.visible,
           title: '',
+        };
+        if (instance.widthMode !== 'atr' && entry.appliedLineWidth !== instance.lineWidth) {
+          options.lineWidth = instance.lineWidth;
+          entry.appliedLineWidth = instance.lineWidth;
+        }
+        entry.api.applyOptions({
+          ...options,
         });
         const signature = `${dataRevision}:${instance.type}:${instance.period}:${instance.source}`;
         if (entry.signature !== signature) {
@@ -176,6 +192,27 @@ export class IndicatorEngine {
     return entry?.kind === 'Histogram' && entry.visible
       ? (entry.averageValues.get(time) ?? null)
       : null;
+  }
+
+  refreshStrokeWidths(
+    atr: number | null,
+    referencePrice: number,
+    priceToCoordinate: PriceToCoordinate,
+  ) {
+    for (const entry of this.series.values()) {
+      if (entry.kind !== 'Line' || entry.widthMode !== 'atr') continue;
+      const cssWidth = resolveStrokeWidth(
+        'atr',
+        entry.fallbackLineWidth,
+        atr,
+        referencePrice,
+        priceToCoordinate,
+      );
+      const width = nativeLineWidth(cssWidth);
+      if (width === entry.appliedLineWidth) continue;
+      entry.api.applyOptions({ lineWidth: width });
+      entry.appliedLineWidth = width;
+    }
   }
 
   private removeEntry(entry: SeriesEntry) {

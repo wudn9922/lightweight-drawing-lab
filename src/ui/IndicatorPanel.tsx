@@ -48,7 +48,8 @@ export function IndicatorPanel({
         source: 'close',
         visible: true,
         locked: false,
-        lineWidth: 2,
+        lineWidth: isVolume ? 2 : 1,
+        widthMode: isVolume ? 'pixels' : 'atr',
         color: indicatorColors[indicators.length % indicatorColors.length],
         scope: { timeframe },
       });
@@ -94,11 +95,16 @@ export function IndicatorPanel({
 
       const nextPeriod = Number(data.get('period'));
       if (Number.isInteger(nextPeriod) && nextPeriod >= 1 && nextPeriod <= 5000) {
+        const selectedWidth = String(data.get('width'));
+        const widthMode = selectedWidth === 'atr' ? 'atr' : 'pixels';
+        const lineWidth = selectedWidth === 'atr' ? 1 : Number(selectedWidth);
+        if (selectedWidth !== 'atr' && ![1, 2, 3, 4].includes(lineWidth)) return;
         store.updateIndicator(symbol, indicator.id, {
           period: nextPeriod,
           source: data.get('source') as PriceSource,
           color: String(data.get('color')),
-          lineWidth: Number(data.get('width')) as 1 | 2 | 3 | 4,
+          lineWidth: lineWidth as 1 | 2 | 3 | 4,
+          widthMode,
         });
         setEditing(null);
       }
@@ -301,10 +307,11 @@ export function IndicatorPanel({
                 {!isIndicatorVolume && (
                   <label>
                     Width
-                    <select name="width" defaultValue={indicator.lineWidth}>
+                    <select name="width" aria-label={`${title} width`} defaultValue={indicator.widthMode === 'atr' ? 'atr' : String(indicator.lineWidth)}>
+                      <option value="atr">0.02 ATR (14)</option>
                       {[1, 2, 3, 4].map((width) => (
                         <option key={width} value={width}>
-                          {width}
+                          {width}px
                         </option>
                       ))}
                     </select>
@@ -319,7 +326,7 @@ export function IndicatorPanel({
       <p className="small muted">
         Lock 後仍可隱藏／顯示。
         <br />
-        解鎖後才能修改或刪除。
+        解鎖後才能修改或刪除。ATR width maps 0.02 × 14-bar ATR through the price scale; native SMA/EMA strokes round to 1–4 px. Pixel mode uses native 1–4 px. New SMA/EMA instances use ATR, while saved instances keep their current width mode.
       </p>
     </section>
   );

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { chooseDrawingTool, clickDrawingUtility, type DrawingToolName } from './drawing-picker-helper';
 import { readFile } from 'node:fs/promises';
 import type { SymbolState } from '../src/storage/schema';
 
@@ -76,23 +77,23 @@ test('V1 channel, range measurements and vertical line share chart gestures and 
       await page.mouse.up();
     }
   };
-  const placeOne = async (name: string, from: [number, number], to: [number, number]) => {
-    await page.getByRole('button', { name, exact: true }).click();
+  const placeOne = async (name: DrawingToolName, from: [number, number], to: [number, number]) => {
+    await chooseDrawingTool(page, name);
     await drag(...from, ...to);
   };
   const placeTwo = async (
-    name: string,
+    name: DrawingToolName,
     first: [number, number],
     second: [number, number],
   ) => {
-    await page.getByRole('button', { name, exact: true }).click();
+    await chooseDrawingTool(page, name);
     await drag(first[0] - 6, first[1] - 6, first[0], first[1]);
     await drag(second[0] - 6, second[1] - 6, second[0], second[1]);
   };
   const x = (fraction: number) => plot.x + plot.width * fraction;
   const y = (fraction: number) => plot.y + plot.height * fraction;
 
-  await page.getByRole('button', { name: 'Parallel Channel', exact: true }).click();
+  await chooseDrawingTool(page, 'Parallel Channel');
   await drag(x(0.18) - 6, y(0.48) - 6, x(0.18), y(0.48));
   await drag(x(0.92) - 6, y(0.6) - 6, x(0.92), y(0.6));
   await drag(x(0.48) - 6, y(0.35) - 6, x(0.48), y(0.35));
@@ -109,11 +110,11 @@ test('V1 channel, range measurements and vertical line share chart gestures and 
   await drag(x(0.49), y(0.42), x(0.52), y(0.44));
   const channelMoved = (await readDrawings(page)).find((d) => d.type === 'channel')!;
   expect(channelMoved.points.every((point, i) => point.time !== channelEndpointEdit.points[i].time)).toBe(true);
-  await page.getByRole('button', { name: 'Undo drawing', exact: true }).click();
+  await clickDrawingUtility(page, 'Undo drawing');
   await expect
     .poll(async () => (await readDrawings(page)).find((d) => d.type === 'channel')?.points)
     .toEqual(channelEndpointEdit.points);
-  await page.getByRole('button', { name: 'Redo drawing', exact: true }).click();
+  await clickDrawingUtility(page, 'Redo drawing');
   await expect
     .poll(async () => (await readDrawings(page)).find((d) => d.type === 'channel')?.points)
     .toEqual(channelMoved.points);
@@ -270,7 +271,7 @@ test('V1 channel, range measurements and vertical line share chart gestures and 
     version: number;
     symbols: SymbolState[];
   };
-  expect(exported.version).toBe(3);
+  expect(exported.version).toBe(4);
   const exportedAapl = exported.symbols.find((state) => state.symbol === 'AAPL');
   expect(exportedAapl).toBeDefined();
   expect(canonicalDrawingSnapshot(exportedAapl!.drawings)).toEqual(lockedSnapshots);

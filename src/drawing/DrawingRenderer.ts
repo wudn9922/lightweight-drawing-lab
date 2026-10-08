@@ -8,6 +8,7 @@ import { positionsLine } from '@tradingview/lwc-toolkit/dimensions/positions';
 import { controlAnchors, type Drawing, type DrawingProjection, type Point } from './DrawingModel';
 import { raySegment } from '../tools/HorizontalRay';
 import type { DrawingScene } from './DrawingStateMachine';
+import { bitmapLineWidth } from '../chart/StrokeWidth';
 
 function setDash(ctx: CanvasRenderingContext2D, style: Drawing['style']['lineStyle'], rx: number) {
   if (style === 'dashed') ctx.setLineDash([8 * rx, 5 * rx]);
@@ -78,10 +79,15 @@ export class DrawingRenderer implements IPrimitivePaneRenderer {
           const b = d.points[1] ? this.projection.toPoint(d.points[1]) : null;
           if (!a || (d.type !== 'horizontal' && d.type !== 'vertical' && !b)) return;
           const selected = scene.selectedId === d.id;
-          const strokeWidth = preview ? 1 : Math.max(d.style.lineWidth, selected ? 2.5 : 0);
+          const strokeWidth = preview
+            ? 1
+            : Math.max(
+                this.projection.strokeWidth?.(d.style, d.points[0].price) ?? d.style.lineWidth,
+                selected ? 2.5 : 0,
+              );
           ctx.save();
           ctx.strokeStyle = d.style.color;
-          ctx.lineWidth = Math.max(1, Math.round(strokeWidth * rx));
+          ctx.lineWidth = bitmapLineWidth(strokeWidth, rx);
           ctx.lineCap = 'round';
           ctx.globalAlpha = Math.max(0, Math.min(1, d.style.opacity ?? 1));
           setDash(ctx, d.style.lineStyle, rx);
@@ -89,7 +95,7 @@ export class DrawingRenderer implements IPrimitivePaneRenderer {
           if (d.type === 'fibonacci') {
             drawFibonacci(ctx, d, this.projection, rx, ry);
           } else if (d.type === 'horizontal') {
-            const pos = positionsLine(a.y, ry, strokeWidth);
+            const pos = positionsLine(a.y, ry, Math.max(strokeWidth, 1 / ry));
             const y = pos.position + pos.length / 2;
             ctx.lineWidth = pos.length;
             ctx.beginPath();

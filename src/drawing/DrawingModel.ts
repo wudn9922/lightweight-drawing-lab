@@ -1,4 +1,5 @@
 import { rectangleAnchors } from '../tools/Rectangle';
+import type { WidthMode } from '../chart/StrokeWidth';
 import type { Timeframe } from '../market-data/MarketDataProvider';
 export interface Anchor {
   time: number;
@@ -10,6 +11,7 @@ export type ToolKind = 'trend' | 'horizontal' | 'ray' | 'rectangle' | 'fibonacci
 export interface DrawingStyle {
   color: string;
   lineWidth: number;
+  widthMode?: WidthMode;
   lineStyle?: 'solid' | 'dashed' | 'dotted';
   opacity?: number;
   fillOpacity?: number;
@@ -38,6 +40,7 @@ export interface DrawingProjection {
   width(): number;
   height(): number;
   logicalAt?(anchor: Anchor): number;
+  strokeWidth?(style: DrawingStyle, referencePrice: number): number;
 }
 export function drawingVisible(d: Drawing, symbol: string, timeframe: Timeframe): boolean {
   return (

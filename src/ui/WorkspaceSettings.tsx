@@ -18,7 +18,8 @@ const workspaceTools: Array<{ id: ToolKind; label: string; filled?: boolean; lab
 function styleFor(style: Partial<DrawingStyle> | undefined, filled: boolean): DrawingStyle {
   return {
     color: style?.color ?? '#5ca9ff',
-    lineWidth: style?.lineWidth ?? 2,
+    lineWidth: style?.lineWidth ?? 1,
+    widthMode: style ? style.widthMode ?? 'pixels' : 'atr',
     lineStyle: style?.lineStyle ?? 'solid',
     opacity: style?.opacity ?? 1,
     ...(filled ? { fillOpacity: style?.fillOpacity ?? 0.08 } : {}),
@@ -45,6 +46,7 @@ export function WorkspaceSettings({ store }: { store: AppStore }) {
     try {
       if (!/^#[0-9a-fA-F]{6}$/.test(draft.color)) throw new Error('Color must be a six-digit hex value.');
       if (!Number.isInteger(draft.lineWidth) || draft.lineWidth < 1 || draft.lineWidth > 4) throw new Error('Line width must be an integer from 1 through 4.');
+      if (draft.widthMode !== 'pixels' && draft.widthMode !== 'atr') throw new Error('Line width mode is invalid.');
       if (!Number.isFinite(draft.opacity) || draft.opacity! < 0 || draft.opacity! > 1) throw new Error('Opacity must be from 0 through 1.');
       if (toolConfig.filled && (!Number.isFinite(draft.fillOpacity) || draft.fillOpacity! < 0 || draft.fillOpacity! > 0.3)) throw new Error('Fill opacity must be from 0 through 0.3.');
       const next = structuredClone(store.getSnapshot().app.drawingDefaults);
@@ -81,7 +83,11 @@ export function WorkspaceSettings({ store }: { store: AppStore }) {
         </label>
         <label>
           Line width
-          <select aria-label="Default drawing width" value={draft.lineWidth} onChange={(event) => setDraft({ ...draft, lineWidth: Number(event.target.value) })}>
+          <select aria-label="Default drawing width" value={draft.widthMode === 'atr' ? 'atr' : String(draft.lineWidth)} onChange={(event) => {
+            const selected = event.target.value;
+            setDraft({ ...draft, widthMode: selected === 'atr' ? 'atr' : 'pixels', lineWidth: selected === 'atr' ? 1 : Number(selected) });
+          }}>
+            <option value="atr">0.02 ATR (14)</option>
             {[1, 2, 3, 4].map((width) => <option key={width} value={width}>{width}px</option>)}
           </select>
         </label>
@@ -112,6 +118,7 @@ export function WorkspaceSettings({ store }: { store: AppStore }) {
         {error && <p className="research-error" role="alert">{error}</p>}
         <button className="primary-button" type="submit" style={{ minHeight: 44 }}>Save new-drawing defaults</button>
       </form>
+      <p className="small muted">ATR width maps to 0.02 × 14-bar ATR in price space, with a 0.5 CSS-pixel minimum; native chart lines round to 1–4 px. Existing saved widths stay fixed unless you change their mode. Defaults apply to new drawings.</p>
       <section className="settings-subsection" aria-labelledby="indicator-presets-heading">
         <h3 id="indicator-presets-heading">Indicator presets</h3>
         {!app.indicatorPresets.length ? <p className="small muted">No saved presets.</p> : (

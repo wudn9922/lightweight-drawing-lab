@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { clickDrawingUtility } from './drawing-picker-helper';
 import { DEFAULT_FIB_LEVELS } from '../src/tools/Fibonacci';
 test('Phase 2 mixed geometry: 2,500 bars, 8 SMAs and 100 locked objects keep pan/zoom operable', async ({
   page,
@@ -85,8 +86,8 @@ test('Phase 2 mixed geometry: 2,500 bars, 8 SMAs and 100 locked objects keep pan
   await page.mouse.down();
   await page.mouse.move(r.x + r.width * 0.55 + 50, r.y + r.height * 0.55, { steps: 12 });
   await page.mouse.up();
-  await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
-  await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
+  await clickDrawingUtility(page, 'Zoom in');
+  await clickDrawingUtility(page, 'Zoom out');
   await expect(page.locator('.chart-loading')).toHaveCount(0);
   const stored = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve) => {

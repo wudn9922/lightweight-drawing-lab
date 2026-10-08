@@ -197,7 +197,12 @@ export class DrawingStateMachine {
       style: {
         ...otherStyle,
         color: style.color ?? '#5ca9ff',
-        lineWidth: style.lineWidth ?? 2,
+        lineWidth: style.lineWidth ?? 1,
+        ...(style.widthMode !== undefined
+          ? { widthMode: style.widthMode }
+          : style.lineWidth === undefined
+            ? { widthMode: 'atr' as const }
+            : {}),
         ...(type === 'fibonacci' && hiddenLevels
           ? { hiddenLevels: hiddenLevels.filter((level) => fibDefaultLevels.has(level)) }
           : {}),

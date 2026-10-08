@@ -33,6 +33,7 @@ import type { Bar, BarResult, Timeframe } from '../market-data/MarketDataProvide
 import type { StrategyResult } from '../strategy';
 import type { FilingEvent } from '../events/FilingEvents';
 import { coloredVolume, volumeSma } from '../indicators/Volume';
+import { averageTrueRange } from '../indicators/AverageTrueRange';
 const compactVolume = new Intl.NumberFormat('en-US', {
   notation: 'compact',
   maximumFractionDigits: 2,
@@ -59,6 +60,7 @@ export class ChartEngine {
   private symbol = '';
   private timeframe: Timeframe = '1D';
   private bars: Bar[] = [];
+  private atr: number | null = null;
   private revision = 0;
   private barIndices = new Map<number, number>();
   private allDrawings: Drawing[] = [];
@@ -69,6 +71,7 @@ export class ChartEngine {
   private legacyVolumeAverageValues = new Map<number, number>();
   private legacyVolumeVisible = false;
   private indicatorInstances: readonly IndicatorInstance[] = [];
+  private activePointers = new Set<number>();
   private viewTimer: ReturnType<typeof setTimeout> | null = null;
   private header: HTMLElement;
   private sourceLabel: HTMLElement;
@@ -100,7 +103,7 @@ export class ChartEngine {
       },
       rightPriceScale: {
         borderColor: '#243043',
-        minimumWidth: 64,
+        minimumWidth: 40,
         scaleMargins: { top: 0.05, bottom: 0.22 },
       },
       timeScale: {
@@ -148,15 +151,29 @@ export class ChartEngine {
     this.indicators = new IndicatorEngine(this.chart);
     this.chart.subscribeCrosshairMove(this.crosshair);
     host.addEventListener('pointerup', this.scheduleView);
+    host.addEventListener('pointerdown', this.pointerDown);
+    host.addEventListener('pointermove', this.pointerMove, { passive: true });
+    host.addEventListener('pointerup', this.pointerEnd);
+    host.addEventListener('pointercancel', this.pointerEnd);
+    host.addEventListener('lostpointercapture', this.pointerEnd);
     host.addEventListener('wheel', this.scheduleView, { passive: true });
+    host.addEventListener('wheel', this.scaleInput, { passive: true });
+    window.addEventListener('pointerup', this.pointerEnd, { passive: true });
+    window.addEventListener('pointercancel', this.pointerEnd, { passive: true });
+    window.addEventListener('blur', this.clearActivePointers);
+    this.chart.timeScale().subscribeVisibleLogicalRangeChange(this.logicalRangeChanged);
+    this.chart.timeScale().subscribeSizeChange(this.scaleSizeChanged);
   }
   clear() {
     this.flushView();
     this.cancelOhlcFrame();
+    this.activePointers.clear();
     this.ohlcBar = null;
     this.bars = [];
+    this.atr = null;
     this.barIndices.clear();
     this.indicatorInstances = [];
+    this.allDrawings = [];
     this.legacyVolumeValues.clear();
     this.legacyVolumeAverageValues.clear();
     this.legacyVolumeVisible = false;
@@ -187,8 +204,10 @@ export class ChartEngine {
     legacyVolume = true,
   ) {
     this.cancelOhlcFrame();
+    this.activePointers.clear();
     this.ohlcBar = null;
     this.bars = [];
+    this.atr = null;
     this.barIndices.clear();
     this.legacyVolumeValues.clear();
     this.legacyVolumeAverageValues.clear();
@@ -206,12 +225,13 @@ export class ChartEngine {
     this.symbol = symbol;
     this.timeframe = timeframe;
     this.bars = result.bars;
+    this.atr = averageTrueRange(result.bars);
     this.barIndices = new Map(result.bars.map((b, i) => [b.time, i]));
     this.indicatorInstances = indicators;
     this.allDrawings = drawings;
     this.revision++;
     this.mapper = new TimeMapper(result.bars, timeframe);
-    const transform = new ChartTransform(this.chart, this.candles, this.mapper);
+    const transform = new ChartTransform(this.chart, this.candles, this.mapper, this.atr);
     this.candles.setData([
       ...result.bars.map((b) => ({ ...b, time: b.time as UTCTimestamp })),
       ...this.mapper.futureWhitespace().map((b) => ({ time: b.time as UTCTimestamp })),
@@ -259,6 +279,7 @@ export class ChartEngine {
     this.chart.timeScale().setVisibleLogicalRange(restoreViewRange(range, result.bars.length));
     this.ohlcBar = result.bars.at(-1) ?? null;
     this.renderHeader();
+    this.scheduleVisualFrame();
     this.sourceLabel.textContent = `${result.source} · ${result.session.toUpperCase()} · ${result.dataState ?? (result.delayed ? 'DELAYED' : 'SIMULATED')} · ${result.cacheStatus ?? 'fresh'} · ${result.priceBasis ?? 'unknown price basis'} · as-of ${result.asOf ? new Date(result.asOf * 1000).toLocaleString() : 'N/A'} · last bar ${new Date(result.bars.at(-1)!.time * 1000).toLocaleString()}`;
     this.sourceLabel.title = this.sourceLabel.textContent;
   }
@@ -410,13 +431,55 @@ export class ChartEngine {
     if (this.suppressCrosshairReadout || !this.bars.length) return;
     const data = param.seriesData.get(this.candles);
     this.ohlcBar = data && 'open' in data ? (data as unknown as Bar) : (this.bars.at(-1) ?? null);
-    if (!this.ohlcRaf)
-      this.ohlcRaf = requestAnimationFrame(() => {
-        this.ohlcRaf = 0;
-        this.renderHeader();
-      });
+    this.scheduleVisualFrame();
   };
+  private scheduleVisualFrame() {
+    if (this.ohlcRaf) return;
+    this.ohlcRaf = requestAnimationFrame(() => {
+      this.ohlcRaf = 0;
+      this.renderHeader();
+    });
+  }
+  private refreshStrokeWidths() {
+    this.indicators.refreshStrokeWidths(
+      this.atr,
+      this.bars.at(-1)?.close ?? Number.NaN,
+      (price) => this.candles.priceToCoordinate(price),
+    );
+  }
+  private hasAtrWidths() {
+    const hasIndicator = this.indicatorInstances.some(
+      (instance) =>
+        instance.type !== 'Volume' &&
+        instance.widthMode === 'atr' &&
+        (!instance.scope.timeframe || instance.scope.timeframe === this.timeframe),
+    );
+    const drawings = this.controller?.machine.drawings ??
+      this.allDrawings.filter((drawing) => drawingVisible(drawing, this.symbol, this.timeframe));
+    return hasIndicator || drawings.some((drawing) => drawing.visible && drawing.style.widthMode === 'atr');
+  }
+  private scheduleStrokeRefresh() {
+    if (this.hasAtrWidths()) this.scheduleVisualFrame();
+  }
+  private pointerDown = (event: PointerEvent) => {
+    this.activePointers.add(event.pointerId);
+  };
+  private pointerMove = (event: PointerEvent) => {
+    if (event.buttons !== 0 || this.activePointers.has(event.pointerId)) this.scheduleStrokeRefresh();
+  };
+  private pointerEnd = (event: PointerEvent) => {
+    if (this.activePointers.delete(event.pointerId)) this.scheduleStrokeRefresh();
+  };
+  private clearActivePointers = () => {
+    if (!this.activePointers.size) return;
+    this.activePointers.clear();
+    this.scheduleStrokeRefresh();
+  };
+  private scaleInput = () => this.scheduleStrokeRefresh();
+  private logicalRangeChanged = () => this.scheduleStrokeRefresh();
+  private scaleSizeChanged = () => this.scheduleStrokeRefresh();
   private renderHeader() {
+    this.refreshStrokeWidths();
     const b = this.ohlcBar;
     if (!b) {
       this.header.textContent = '';
@@ -534,9 +597,11 @@ export class ChartEngine {
     this.flushView();
     this.detachController();
     this.cancelOhlcFrame();
+    this.activePointers.clear();
     this.ohlcBar = null;
     this.barIndices.clear();
     this.bars = [];
+    this.atr = null;
     this.indicatorInstances = [];
     this.legacyVolumeValues.clear();
     this.legacyVolumeAverageValues.clear();
@@ -548,7 +613,19 @@ export class ChartEngine {
     this.clearLegendReadouts();
     this.legend = null;
     this.host.removeEventListener('pointerup', this.scheduleView);
+    this.host.removeEventListener('pointerdown', this.pointerDown);
+    this.host.removeEventListener('pointermove', this.pointerMove);
+    this.host.removeEventListener('pointerup', this.pointerEnd);
+    this.host.removeEventListener('pointercancel', this.pointerEnd);
+    this.host.removeEventListener('lostpointercapture', this.pointerEnd);
     this.host.removeEventListener('wheel', this.scheduleView);
+    this.host.removeEventListener('wheel', this.scaleInput);
+    window.removeEventListener('pointerup', this.pointerEnd);
+    window.removeEventListener('pointercancel', this.pointerEnd);
+    window.removeEventListener('blur', this.clearActivePointers);
+    this.activePointers.clear();
+    this.chart.timeScale().unsubscribeVisibleLogicalRangeChange(this.logicalRangeChanged);
+    this.chart.timeScale().unsubscribeSizeChange(this.scaleSizeChanged);
     this.chart.unsubscribeCrosshairMove(this.crosshair);
     this.chart.remove();
   }

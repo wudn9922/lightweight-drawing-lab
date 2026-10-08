@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { chooseDrawingTool, clickDrawingUtility } from './drawing-picker-helper';
 import type { CDPSession } from 'playwright-core';
 import { FinancialNormalizer } from '../src/fundamentals/FinancialNormalizer';
 import type { FinancialPeriod } from '../src/fundamentals/FundamentalsProvider';
@@ -233,7 +234,7 @@ test('V1 research journey keeps per-symbol indicators, drawings, alerts, financi
   await sma24.getByLabel('Period', { exact: true }).fill('26');
   await sma24.getByRole('combobox', { name: 'Source', exact: true }).selectOption('high');
   await sma24.getByLabel('Color', { exact: true }).fill('#67b8ee');
-  await sma24.getByRole('combobox', { name: 'Width', exact: true }).selectOption('3');
+  await sma24.getByRole('combobox', { name: 'SMA 24 width', exact: true }).selectOption('3');
   await sma24.getByRole('button', { name: '儲存', exact: true }).click();
   const sma26 = page.getByTestId('ma-26');
   await expect(sma26).toContainText('high');
@@ -293,7 +294,7 @@ test('V1 research journey keeps per-symbol indicators, drawings, alerts, financi
     .toBe('#b47cff');
   await closePanel(page);
 
-  await page.getByRole('button', { name: 'Horizontal Line', exact: true }).click();
+  await chooseDrawingTool(page, 'Horizontal Line');
   const chart = (await page.getByTestId('chart').locator('canvas').first().boundingBox())!;
   await drag.drag(
     chart.x + chart.width * 0.68,
@@ -353,7 +354,7 @@ test('V1 research journey keeps per-symbol indicators, drawings, alerts, financi
   await ema56.getByRole('button', { name: 'Settings EMA 56', exact: true }).click();
   await ema56.getByRole('combobox', { name: 'Source', exact: true }).selectOption('low');
   await ema56.getByLabel('Color', { exact: true }).fill('#f0a266');
-  await ema56.getByRole('combobox', { name: 'Width', exact: true }).selectOption('4');
+  await ema56.getByRole('combobox', { name: 'EMA 56 width', exact: true }).selectOption('4');
   await ema56.getByRole('button', { name: '儲存', exact: true }).click();
   await addIndicator(page, 'Volume');
   await page
@@ -416,7 +417,7 @@ test('V1 research journey keeps per-symbol indicators, drawings, alerts, financi
 
   if (info.project.name === 'ipad-webkit') {
     await closePanel(page);
-    await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
+    await clickDrawingUtility(page, 'Zoom out');
     await expect.poll(async () => (await readSymbol(page))?.preferences.views['1D']).toBeDefined();
     await openPanel(page, 'alerts');
     const sheet = page.locator('.sheet-backdrop.tablet-context');
@@ -478,7 +479,7 @@ test('V1 research journey keeps per-symbol indicators, drawings, alerts, financi
   await closePanel(page);
 
   const baseline = await readWorkspace(page);
-  const invalid = JSON.stringify({ version: 4, app: baseline.app, symbols: baseline.symbols });
+  const invalid = JSON.stringify({ version: 5, app: baseline.app, symbols: baseline.symbols });
   await page.getByLabel('Settings file', { exact: true }).setInputFiles({
     name: 'invalid-settings.json',
     mimeType: 'application/json',
@@ -498,7 +499,7 @@ test('V1 research journey keeps per-symbol indicators, drawings, alerts, financi
     app: AppSettings;
     symbols: SymbolState[];
   };
-  expect(exported.version).toBe(3);
+  expect(exported.version).toBe(4);
   expect(exported.app.indicatorPresets.map((preset) => preset.name)).toEqual([
     'AAPL mix',
     'NVDA mix',

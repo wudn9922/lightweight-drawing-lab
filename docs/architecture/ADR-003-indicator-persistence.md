@@ -24,3 +24,7 @@ SMA, SMA-seeded EMA and Volume are id-based symbol-owned instances. Volume ignor
 ### V1 timeframe isolation (2026-10-07)
 
 V3 settings require every indicator to own one timeframe; a symbol can keep 100 instances per timeframe and 800 total. New instances bind to the symbol's active timeframe. Indicator presets save only that timeframe and rebind fresh copies to the target symbol's active timeframe. Legacy unscoped symbol indicators bind to the saved preferred timeframe during the v1/v2-to-v3 migration. V3 preserves existing locked states and still permits locked instances to change visibility or unlock only.
+
+## Superseding workspace extension — ATR widths and v4 settings (2026-10-08)
+
+[ADR-012](ADR-012-drawing-picker-and-atr-strokes.md) adds optional indicator `widthMode: 'pixels' | 'atr'` while retaining `lineWidth` as the pixel fallback. Newly created SMA/EMA instances default to Wilder ATR(14) × 0.02 mapped through the public price scale. Existing instances, styles, locks and saved defaults keep their previous widths unless changed. Volume remains in pixel mode with its 2px default; its width never uses ATR. IndexedDB and export version 4 persist this preference while migrations preserve prior v3 timeframe ownership. Full extension verification remains pending.

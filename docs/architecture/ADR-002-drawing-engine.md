@@ -38,6 +38,10 @@ Installed 5.2.1 ChartApi.options() exposes the live chart options object. Gestur
 
 Compatibility Touch Events must not start native chart long-press tracking during a Pointer-owned drawing. The same controller suppresses that touch cycle through release; a secondary touch cancels drawing and allows native pinch. No geometry is computed by Touch Events. Native chart pan receives untouched events for locked drawings. Browser regression includes a precision hold longer than the chart long-press threshold before testing actual range movement.
 
+## Superseding workspace extension — categorized tool picker and ATR stroke mode (2026-10-08)
+
+[ADR-012](ADR-012-drawing-picker-and-atr-strokes.md) supersedes the prior rail-based tool-selection UI, not the drawing domain or gesture engine. One toolbar launcher opens an accessible categorized modal for the ten existing tools. Opening it cancels unfinished placement; choosing a tool invokes the existing selection path. All anchors, pointer ownership, primitive rendering, hit testing, magnet rules, history and lock behavior remain unchanged. New unspecialized drawings default to price-domain Wilder ATR(14) × 0.02, projected by the public price scale. `lineWidth` remains the persisted pixel fallback; screen pixels are not added to canonical anchors. Warmup/invalid/flat history falls back to stored pixels, and the preview/selection/native-width bounds in ADR-012 remain. Existing drawings/styles/locks are not rewritten. Full gate verification is pending.
+
 ## Authorized UAT extension (2026-10-07)
 
 [ADR-011](ADR-011-timeframe-ownership-and-snapshot-prices.md) supersedes historical cross-timeframe defaults and Demo-only static prices. 1M is calendar-aware. Drawings/indicators/history/volume now belong to symbol+timeframe with validated atomic v3 migration. Yahoo quote OHLC is source-split-adjusted, never divided again; real static delayed snapshots and as-of metadata are published by the existing hourly weekday Actions workflow. SEC still needs a backend. Previous unadjusted wording is historical and must not guide new price normalization.
